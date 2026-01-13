@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pineapple}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pineapple}
+      POSTGRES_DB: ${POSTGRES_DB:-pineapple}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - pineapple-net
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
+    ports:
+      - "8000:8000"
+    networks:
+      - pineapple-net
+
+  scanner:
+    build:
+      context: .
+      dockerfile: scanner/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
+      REDDIT_USER: ${REDDIT_USER:-WeirdPineapple}
+      API_RATE_DELAY: ${API_RATE_DELAY:-6.5}
+      META_CACHE_DAYS: ${META_CACHE_DAYS:-7}
+      # Comma-separated list of subreddit names to ignore (lowercased)
+      IGNORE_SUBREDDITS: ${IGNORE_SUBREDDITS:-wowthissubexists,sneakpeekbot}
+    networks:
+      - pineapple-net
+
+  nginx:
+    image: nginx:stable-alpine
+    depends_on:
+      - api
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    ports:
+      - "80:80"
+    networks:
+      - pineapple-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    command: tunnel --no-autoupdate run --token "eyJhIjoiMTcxMTI5ODllODExMWU2MmU0YjgyYmM0NjYxNzVhY2UiLCJ0IjoiZjI2ZjVkYjMtYTVjNC00NTgwLWJiODQtYjNhNTllNjcxODQ1IiwicyI6IlpqTmpPRFUwWkdZdE1XWmhNQzAwTnpVNExXSmhOak10TnpGbFpEUXlNVFZqTVdWaSJ9"
+    networks:
+      - pineapple-net
+
+volumes:
+  db-data:
+
+networks:
+  pineapple-net:
+    driver: bridge
