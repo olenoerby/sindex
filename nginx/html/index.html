@@ -72,7 +72,7 @@
             <button id="filterBtn" class="btn btn-ghost" style="margin-left:8px">Filters ▾</button>
             
             <button id="sortDir" class="btn">Sort: Desc</button>
-            <button id="resetFilters" class="btn btn-ghost">Reset all</button>
+            <button id="resetFilters" class="btn btn-ghost">Reset filters</button>
           </div>
         </div>
         <!-- Filter popout: positioned relative to .controls (absolute placement) -->
@@ -92,7 +92,7 @@
               <div style="display:flex;justify-content:space-between;margin-top:6px">
                 <div></div>
                 <div style="display:flex;gap:8px">
-                  <button id="resetFiltersPop" class="btn btn-ghost">Reset all</button>
+                  <button id="resetFiltersPop" class="btn btn-ghost">Reset filters</button>
                   <button id="showAll" class="btn btn-ghost">Show all</button>
                   <button id="closeFilterPop" class="btn">Close</button>
                 </div>
@@ -896,7 +896,11 @@
       // initialize content filter controls state on load
       try{ updateContentFilterControls(); }catch(e){}
     }
-    document.getElementById('reload').addEventListener('click', ()=> loadPage(currentPage));
+    document.getElementById('reload').addEventListener('click', async ()=>{
+      try{
+        await Promise.all([refreshTotalCount().catch(()=>{}), loadPage(currentPage).catch(()=>{})]);
+      }catch(e){/* ignore */}
+    });
     document.getElementById('sortDir').addEventListener('click', ()=>{
       if(currentSortDir === 'desc') currentSortDir = 'asc';
       else if(currentSortDir === 'asc') currentSortDir = 'random';
