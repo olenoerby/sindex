@@ -477,24 +477,19 @@ def process_post(post_item, session: Session):
 
                 # Insert mention only if it doesn't already exist
                 try:
-                    try:
-                        existing_by_user = None
-                        if cm.user_id:
-                            existing_by_user = session.query(models.Mention).filter_by(subreddit_id=sub.id, user_id=cm.user_id).first()
-                        if existing_by_user:
-                            pass
-                        else:
-                            exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
-                            if not exists:
-                                mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id)
-                                session.add(mention)
-                                session.commit()
-                                try:
-                                    increment_analytics(session, mentions=1)
-                                except Exception:
-                                    logger.debug('Failed to increment analytics for mention')
-                    except Exception:
-                        session.rollback()
+                    existing_by_user = None
+                    if cm.user_id:
+                        existing_by_user = session.query(models.Mention).filter_by(subreddit_id=sub.id, user_id=cm.user_id).first()
+                    if not existing_by_user:
+                        exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
+                        if not exists:
+                            mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id)
+                            session.add(mention)
+                            session.commit()
+                            try:
+                                increment_analytics(session, mentions=1)
+                            except Exception:
+                                logger.debug('Failed to increment analytics for mention')
                 except Exception:
                     session.rollback()
 

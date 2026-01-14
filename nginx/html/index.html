@@ -54,7 +54,7 @@
   </style>
 </head>
 <body>
-  <h1><a href="/" style="color:inherit;text-decoration:none">Pineapple Index</a><button id="explainBtn" class="info-btn" title="About" aria-label="About">About</button><span id="headerSubCount" class="header-count">0 Unique subreddits scanned</span></h1>
+  <h1><a href="/" style="color:inherit;text-decoration:none">Pineapple Index</a><button id="explainBtn" class="info-btn" title="About" aria-label="About">About</button><span id="headerSubCount" class="header-count">0 subreddits scanned</span></h1>
   <p class="muted" style="margin-top:6px">A subreddit list with thanks to <a href="https://www.reddit.com/user/WeirdPineapple" target="_blank" rel="noopener noreferrer">/u/WeirdPineapple</a>!</p>
 
       <div class="container">
@@ -597,7 +597,7 @@
       }catch(e){/* ignore DOM errors */}
       // update header count as well (show overall DB total)
       const hc = document.getElementById('headerSubCount');
-      if(hc) hc.textContent = `${dbTotal} subreddits found`;
+      if(hc) hc.textContent = `${dbTotal} subreddits scanned`;
       updateColumnVisibility(list);
       // Persist current filter/sort/listing preferences so back-navigation preserves state
       try{ savePrefs(); }catch(e){}
@@ -647,7 +647,7 @@
           }
         }catch(e){/* ignore DOM errors */}
         const hc = document.getElementById('headerSubCount');
-        if(hc) hc.textContent = `${dbTotal} subreddits found`;
+        if(hc) hc.textContent = `${dbTotal} subreddits scanned`;
       }catch(e){ /* ignore errors */ }
     }
 
