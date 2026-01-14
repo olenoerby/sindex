@@ -11,6 +11,8 @@ class Post(Base):
     reddit_post_id = Column(String, unique=True, index=True, nullable=False)
     title = Column(Text)
     created_utc = Column(BigInteger, index=True)
+    # count of distinct subreddits mentioned in this post's comments
+    unique_subreddits = Column(Integer, nullable=False, default=0)
     url = Column(Text)
     comments = relationship('Comment', back_populates='post')
 

@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pineapple Index — Analytics</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:18px;color:#0f172a;background:#fbfdff}
+    .container{max-width:1100px;margin:0 auto}
+    h1{font-size:1.4rem;margin-bottom:6px}
+    .row{display:flex;gap:16px;flex-wrap:wrap}
+    .card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 2px 12px rgba(2,6,23,0.06);flex:1;min-width:280px}
+    .muted{color:#6b7280}
+    canvas{width:100%!important;height:320px!important}
+    ul{padding-left:18px;margin:6px 0}
+    a.link{color:var(--accent);text-decoration:none}
+    .meta{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Pineapple Index — Analytics</h1>
+    <div class="meta muted">
+      <div id="lastScanned">Last DB run: —</div>
+      <div id="lastPolled">Last polled: —</div>
+    </div>
+    <div class="row">
+      <div class="card">
+        <h3>Totals</h3>
+        <canvas id="totalsChart"></canvas>
+        <div class="muted" id="totalsSnapshot" style="margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h3>Top 10 Subreddits</h3>
+        <ol id="topSubreddits"></ol>
+        <h3>Top 10 Posts</h3>
+        <ol id="topPosts"></ol>
+        <h3>Top Commenters</h3>
+        <ol id="topCommenters"></ol>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // simple analytics page that polls /stats and top endpoints and shows charts
+    const DAYS = 90; // window in days for the timeline
+    let labels = [];
+    let subsData = [];
+    let postsData = [];
+    let commentsData = [];
+    let mentionsData = [];
+
+    const ctx = document.getElementById('totalsChart').getContext('2d');
+    const totalsChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Subreddits', data: subsData, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', tension:0.2 },
+          { label: 'Posts', data: postsData, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', tension:0.2 },
+          { label: 'Comments', data: commentsData, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', tension:0.2 },
+          { label: 'Mentions', data: mentionsData, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', tension:0.2 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { display: true }, y: { beginAtZero: true } }
+      }
+    });
+
+    async function fetchDaily(){
+      try{
+        const res = await fetch(`/stats/daily?days=${DAYS}`);
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const json = await res.json();
+        // json.items is an array of {date: 'YYYY-MM-DD', posts, comments, mentions, new_subreddits}
+        labels = json.items.map(it => it.date);
+        postsData = json.items.map(it => it.posts || 0);
+        commentsData = json.items.map(it => it.comments || 0);
+        mentionsData = json.items.map(it => it.mentions || 0);
+        subsData = json.items.map(it => it.new_subreddits || 0);
+        totalsChart.data.labels = labels;
+        totalsChart.data.datasets[0].data = subsData;
+        totalsChart.data.datasets[1].data = postsData;
+        totalsChart.data.datasets[2].data = commentsData;
+        totalsChart.data.datasets[3].data = mentionsData;
+        totalsChart.update();
+        document.getElementById('lastPolled').textContent = 'Last polled: ' + new Date().toLocaleString();
+        document.getElementById('lastScanned').textContent = 'Timeline based on posts from DB (oldest → newest)';
+        document.getElementById('totalsSnapshot').textContent = `Showing ${labels.length} days (last ${DAYS} days)`;
+      }catch(e){ console.warn('fetchDaily failed', e); }
+    }
+
+    async function fetchTops(){
+      try{
+        // top subreddits
+        const ts = await fetch('/stats/top?limit=10');
+        if(ts.ok){
+          const js = await ts.json();
+          const ol = document.getElementById('topSubreddits'); ol.innerHTML = '';
+          js.slice(0,10).forEach(s => { const li = document.createElement('li'); li.textContent = `${s.name} — ${s.mentions}`; ol.appendChild(li); });
+        }
+        // top posts
+        const tp = await fetch('/stats/top_posts?limit=10');
+        if(tp.ok){
+          const jp = await tp.json();
+          const ol = document.getElementById('topPosts'); ol.innerHTML = '';
+          jp.items.slice(0,10).forEach(p => { const li = document.createElement('li'); const a = document.createElement('a'); a.href = `https://www.reddit.com/comments/${encodeURIComponent(p.reddit_post_id)}`; a.target='_blank'; a.textContent = (p.title||p.reddit_post_id).slice(0,120); a.className='link'; li.appendChild(a); li.appendChild(document.createTextNode(' — ' + (p.mentions||0))); ol.appendChild(li); });
+        }
+        // top commenters
+        const tc = await fetch('/stats/top_commenters?limit=10');
+        if(tc.ok){
+          const jc = await tc.json();
+          const ol = document.getElementById('topCommenters'); ol.innerHTML = '';
+          jc.items.slice(0,10).forEach(u => { const li = document.createElement('li'); li.textContent = `${u.user_id || '(unknown)'} — ${u.comments}`; ol.appendChild(li); });
+        }
+      }catch(e){ console.warn('fetchTops failed', e); }
+    }
+
+    // initial fetch and periodic polling
+    fetchDaily(); fetchTops();
+    setInterval(()=>{ fetchDaily(); fetchTops(); }, 30000);
+  </script>
+</body>
+</html>

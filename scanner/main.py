@@ -6,7 +6,7 @@ import logging
 # file-based rotating logs removed; rely on container stdout/stderr
 from datetime import datetime, timedelta
 import httpx
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, func
 from sqlalchemy.orm import Session
 import sys
 
@@ -217,11 +217,23 @@ def process_post(post_item, session: Session):
     # Only consider Fap Friday posts by title
     if 'fap friday' not in (title or '').lower():
         return (False, set())
-    # If post already exists, don't re-scan it here
+    # If post already exists, decide whether to re-scan comments.
+    # We re-scan posts that are within the past ~6 months to catch edited
+    # comments which may have added new subreddit mentions. Older posts are
+    # skipped to avoid reprocessing a large backlog.
     existing = session.query(models.Post).filter_by(reddit_post_id=reddit_id).first()
+    now = datetime.utcnow()
+    six_months_ago_ts = int((now - timedelta(days=182)).timestamp())
     if existing:
-        logger.info(f"Post {reddit_id} already in DB, skipping comments")
-        return (True, set())
+        # If the post is older than six months, skip re-scanning comments.
+        try:
+            post_created = int(existing.created_utc or 0)
+        except Exception:
+            post_created = 0
+        if post_created and post_created < six_months_ago_ts:
+            logger.info(f"Post {reddit_id} already in DB and older than 6 months, skipping comments")
+            return (True, set())
+        # Otherwise, allow re-scan below to detect new or edited comments
 
     # fetch comments first so we can determine whether any are new
     try:
@@ -249,21 +261,43 @@ def process_post(post_item, session: Session):
             logger.debug('Failed to increment analytics for post')
         return (True, set())
 
-    # Determine which comments are not yet stored
+    # Determine which comments are new or have changed since last scan.
     missing = []
+    edited = []
     for c in found:
-        if not session.query(models.Comment).filter_by(reddit_comment_id=c['id']).first():
+        cm = session.query(models.Comment).filter_by(reddit_comment_id=c['id']).first()
+        if not cm:
             missing.append(c)
+        else:
+            # If the stored comment body differs from the newly fetched body,
+            # treat it as edited so we re-extract subreddit mentions from it.
+            try:
+                stored_body = (cm.body or '').strip()
+                fetched_body = (c.get('body') or '').strip()
+                if stored_body != fetched_body:
+                    edited.append((cm, c))
+            except Exception:
+                # On any comparison error, conservatively treat as unedited
+                pass
 
-    # If all comments are already scanned, skip this post entirely
-    if not missing:
-        logger.info(f"All comments for post {reddit_id} already scanned, skipping post")
+    # If there are no new or edited comments, skip this post entirely
+    if not missing and not edited and existing:
+        logger.info(f"All comments for post {reddit_id} already scanned and unchanged, skipping post")
         return (True, set())
 
-    # At least one new comment exists — create the post and persist only missing comments
-    post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url)
-    session.add(post)
-    session.commit()
+    # Ensure a Post row exists (create if missing)
+    if not existing:
+        post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url)
+        session.add(post)
+        session.commit()
+        try:
+            increment_analytics(session, posts=1)
+        except Exception:
+            logger.debug('Failed to increment analytics for post')
+        logger.info(f"Saved post {reddit_id} ({format_ts(created_utc)}) - processing {len(missing)} new comments")
+    else:
+        post = existing
+        logger.info(f"Rescanning post {reddit_id} ({format_ts(post.created_utc)}) - {len(missing)} new, {len(edited)} edited comments")
     try:
         date_str = datetime.utcfromtimestamp(created_utc).strftime('%Y-%m-%d') if created_utc else 'unknown-date'
     except Exception:
@@ -276,6 +310,7 @@ def process_post(post_item, session: Session):
 
     discovered = set()
 
+    # Process newly discovered comments first
     for c in missing:
         # extract subreddits first; only persist comment if at least one subreddit mention exists
         subnames = extract_subreddits_from_text(c['body'])
@@ -379,6 +414,113 @@ def process_post(post_item, session: Session):
                     session.rollback()
             except Exception:
                 session.rollback()
+
+    # Process edited comments: update stored body and extract any newly-added subreddit mentions
+    for cm, c in edited:
+        try:
+            fetched_body = c.get('body') or ''
+            # Update stored comment body and metadata
+            try:
+                cm.body = fetched_body
+                cm.user_id = c.get('author_id') or cm.user_id
+                cm.created_utc = int(c.get('created_utc') or cm.created_utc or 0)
+                session.add(cm)
+                session.commit()
+            except Exception:
+                session.rollback()
+
+            subnames = extract_subreddits_from_text(fetched_body)
+            if not subnames:
+                continue
+
+            for sname in subnames:
+                if sname in IGNORE_SUBREDDITS:
+                    continue
+                # get or create subreddit
+                sub = session.query(models.Subreddit).filter_by(name=sname).first()
+                if not sub:
+                    sub = models.Subreddit(name=sname)
+                    session.add(sub)
+                    session.commit()
+                    logger.info(f"New subreddit discovered (edited comment): /r/{sname}")
+                    try:
+                        increment_analytics(session, subreddits=1)
+                    except Exception:
+                        logger.debug('Failed to increment analytics for new subreddit')
+                    discovered.add(sname)
+                else:
+                    try:
+                        now = datetime.utcnow()
+                        needs = False
+                        if not sub.display_name and not sub.title and not sub.public_description_html and not sub.subscribers:
+                            needs = True
+                        elif sub.last_checked is None or (now - sub.last_checked) >= timedelta(days=SUBREDDIT_META_CACHE_DAYS):
+                            needs = True
+                        if needs:
+                            discovered.add(sname)
+                    except Exception:
+                        session.rollback()
+
+                # update first_mentioned if this mention is earlier
+                try:
+                    ts = int(c.get('created_utc') or 0)
+                    updated = False
+                    old_val = sub.first_mentioned
+                    if ts:
+                        if (not sub.first_mentioned) or ts < int(sub.first_mentioned):
+                            sub.first_mentioned = ts
+                            session.add(sub)
+                            session.commit()
+                            updated = True
+                except Exception:
+                    session.rollback()
+
+                # Insert mention only if it doesn't already exist
+                try:
+                    try:
+                        existing_by_user = None
+                        if cm.user_id:
+                            existing_by_user = session.query(models.Mention).filter_by(subreddit_id=sub.id, user_id=cm.user_id).first()
+                        if existing_by_user:
+                            pass
+                        else:
+                            exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
+                            if not exists:
+                                mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id)
+                                session.add(mention)
+                                session.commit()
+                                try:
+                                    increment_analytics(session, mentions=1)
+                                except Exception:
+                                    logger.debug('Failed to increment analytics for mention')
+                    except Exception:
+                        session.rollback()
+                except Exception:
+                    session.rollback()
+
+    # After processing new and edited comments, update the post's unique_subreddits
+    try:
+        try:
+            uniq = int(session.query(func.count(func.distinct(models.Mention.subreddit_id))).filter(models.Mention.post_id == post.id).scalar() or 0)
+        except Exception:
+            # fallback: count distinct subreddit ids manually
+            uniq = 0
+            try:
+                rows = session.query(models.Mention.subreddit_id).filter(models.Mention.post_id == post.id).distinct().all()
+                uniq = len(rows)
+            except Exception:
+                pass
+        try:
+            post.unique_subreddits = uniq
+            session.add(post)
+            session.commit()
+            logger.info(f"Updated post {reddit_id} unique_subreddits={uniq}")
+        except Exception:
+            session.rollback()
+    except Exception:
+        # non-fatal
+        pass
+
     return (True, discovered)
 
 

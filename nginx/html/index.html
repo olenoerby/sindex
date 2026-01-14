@@ -48,7 +48,7 @@
   </style>
 </head>
 <body>
-  <h1><a href="/" style="color:inherit;text-decoration:none">Pineapple Index</a><button id="explainBtn" class="info-btn" title="Explanation" aria-label="Explanation">Explanation</button><span id="headerSubCount" class="header-count">0 Unique subreddits scanned</span></h1>
+  <h1><a href="/" style="color:inherit;text-decoration:none">Pineapple Index</a><button id="explainBtn" class="info-btn" title="About" aria-label="About">About</button><span id="headerSubCount" class="header-count">0 Unique subreddits scanned</span></h1>
   <p class="muted" style="margin-top:6px">A tribute to <a href="https://www.reddit.com/user/WeirdPineapple" target="_blank" rel="noopener noreferrer">/u/WeirdPineapple</a> — thank you for your contributions!</p>
 
       <div class="container">
@@ -61,63 +61,76 @@
             <button id="reload" class="btn btn-ghost btn-no-bold" title="Reload" style="margin-left:8px">↻</button>
           </div>
           <div class="controls-row controls-row--actions">
-            <!-- Listing and Sort moved to Options popout -->
+            <!-- Listing and Sort moved to Filters popout (Options section) -->
             <div style="margin-right:auto" class="muted" id="loading"></div>
             <button id="filterBtn" class="btn btn-ghost" style="margin-left:8px">Filters ▾</button>
-            <button id="optionsBtn" class="btn btn-ghost" style="margin-left:8px">Options ▾</button>
+            
             <button id="sortDir" class="btn">Sort: Desc</button>
-            <button id="resetFilters" class="btn btn-ghost">Reset</button>
+            <button id="resetFilters" class="btn btn-ghost">Reset all</button>
           </div>
         </div>
         <!-- Filter popout: positioned relative to .controls (absolute placement) -->
         <div id="filterPop" style="display:none;position:absolute;z-index:60;min-width:260px;right:12px;top:64px;padding:10px;border-radius:10px;background:var(--card);box-shadow:0 8px 30px rgba(2,6,23,0.08)">
           <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-weight:700;margin-bottom:6px">Filters</div>
             <label style="display:flex;justify-content:space-between;align-items:center">Min mentions <input id="minMentions" type="number" placeholder="0" min="0" step="1" style="width:110px"/></label>
             <label style="display:flex;justify-content:space-between;align-items:center">Max mentions <input id="maxMentions" type="number" placeholder="any" min="1" step="1" style="width:110px"/></label>
             <label style="display:flex;justify-content:space-between;align-items:center">Min subscribers <input id="minSubscribers" type="number" placeholder="0" min="0" step="1" style="width:110px"/></label>
             <label style="display:flex;justify-content:space-between;align-items:center">Max subscribers <input id="maxSubscribers" type="number" placeholder="any" min="0" step="1" style="width:110px"/></label>
             <label style="display:flex;justify-content:space-between;align-items:center"><input id="showAvailable" type="checkbox" checked/> Show available</label>
             <label style="display:flex;justify-content:space-between;align-items:center"><input id="showBanned" type="checkbox"/> Show unavailable</label>
+            <div style="font-weight:600;margin-top:6px">Content filters</div>
             <label style="display:flex;justify-content:space-between;align-items:center"><input id="showNSFW" type="checkbox" checked/> Show NSFW</label>
             <label style="display:flex;justify-content:space-between;align-items:center"><input id="showNonNSFW" type="checkbox"/> Show non-NSFW</label>
-            <div style="display:flex;justify-content:space-between;margin-top:6px">
-              <button id="clearFilters" class="btn btn-ghost">Clear</button>
-              <button id="showAll" class="btn btn-ghost">Show all</button>
-              <button id="closeFilterPop" class="btn">Close</button>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;justify-content:space-between;margin-top:6px">
+                <div></div>
+                <div style="display:flex;gap:8px">
+                  <button id="resetFiltersPop" class="btn btn-ghost">Reset all</button>
+                  <button id="showAll" class="btn btn-ghost">Show all</button>
+                  <button id="closeFilterPop" class="btn">Close</button>
+                </div>
+              </div>
+
+              <div style="border-top:1px dashed #e6eefc;padding-top:8px">
+                <div style="font-weight:700;margin-bottom:6px">Options</div>
+                <table style="width:100%;border-collapse:collapse">
+                  <tr>
+                    <td style="width:50%;padding:6px 4px;vertical-align:middle">Link opens to:</td>
+                    <td style="width:50%;padding:6px 4px"><select id="listing" style="width:100%">
+                      <option value="" selected>Default</option>
+                      <option value="hot">Hot</option>
+                      <option value="top/?t=all">Top - All time</option>
+                      <option value="best">Best</option>
+                      <option value="new">New</option>
+                      <option value="rising">Rising</option>
+                    </select></td>
+                  </tr>
+                  <tr>
+                    <td style="width:50%;padding:6px 4px;vertical-align:middle">Sort by:</td>
+                    <td style="width:50%;padding:6px 4px"><select id="sortSelect" style="width:100%">
+                      <option value="mentions">Mentions</option>
+                      <option value="subscribers">Subscribers</option>
+                      <option value="active_users">Active users</option>
+                      <option value="created_utc">Created</option>
+                      <option value="first_mentioned">First mentioned</option>
+                      <option value="display_name_prefixed">Display name</option>
+                      <option value="title">Title</option>
+                      <option value="description">Description</option>
+                      <option value="name">Name</option>
+                    </select></td>
+                  </tr>
+                </table>
+              </div>
             </div>
           </div>
         </div>
         <!-- Options popout for mobile: will hold Sort and Link Opens To when on small screens -->
-        <div id="optionsPop" style="display:none;position:absolute;z-index:60;min-width:260px;right:12px;top:64px;padding:10px;border-radius:10px;background:var(--card);box-shadow:0 8px 30px rgba(2,6,23,0.08)">
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <label style="margin-right:12px;display:flex;justify-content:space-between;align-items:center">Link opens to:
-              <select id="listing" style="margin-left:6px">
-                <option value="" selected>Default</option>
-                <option value="hot">Hot</option>
-                <option value="top/?t=all">Top - All time</option>
-                <option value="best">Best</option>
-                <option value="new">New</option>
-                <option value="rising">Rising</option>
-              </select>
-            </label>
-            <label style="margin-right:12px;display:flex;justify-content:space-between;align-items:center">Sort by:
-              <select id="sortSelect" style="margin-left:6px">
-                <option value="mentions">Mentions</option>
-                <option value="subscribers">Subscribers</option>
-                <option value="active_users">Active users</option>
-                <option value="created_utc">Created</option>
-                <option value="first_mentioned">First mentioned</option>
-                <option value="display_name_prefixed">Display name</option>
-                <option value="title">Title</option>
-                <option value="description">Description</option>
-                <option value="name">Name</option>
-              </select>
-            </label>
-          </div>
-        </div>
+        <!-- Options moved into the Filter popout (see below) -->
       </div>
 
       <div class="muted" id="count"></div>
+      <div class="muted" id="emptyHint" style="margin-top:8px"></div>
       <div id="paginationControls" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"></div>
       <div class="table-wrap card" style="padding:0;margin-top:12px">
       <table id="tbl">
@@ -147,6 +160,7 @@
     let currentSortDir = 'desc'; // 'asc' or 'desc'
     let prefs = {};
     let randomOrder = null; // array of subreddit names preserving a shuffled order
+    let paginationDisabled = false; // when true, hide pagination controls (no pages available)
 
     function setCookie(name, value, days){
       let expires = '';
@@ -174,7 +188,9 @@
           showNonNSFW: document.getElementById('showNonNSFW') ? !!document.getElementById('showNonNSFW').checked : false,
           listing: document.getElementById('listing') ? document.getElementById('listing').value : '',
           currentSort, currentSortDir,
-          randomOrder: randomOrder || null
+          randomOrder: randomOrder || null,
+          currentPage: currentPage || 1,
+          perPage: perPage || 50
         };
         setCookie('pineapple_prefs', encodeURIComponent(JSON.stringify(p)), 365);
       }catch(e){ /* ignore */ }
@@ -199,6 +215,8 @@
         if(prefs.currentSortDir) currentSortDir = prefs.currentSortDir;
         // reflect saved sort selection in dropdown
         if(document.getElementById('sortSelect')) document.getElementById('sortSelect').value = currentSort;
+        if(prefs.currentPage) currentPage = Number(prefs.currentPage) || 1;
+        if(prefs.perPage) perPage = Number(prefs.perPage) || perPage;
         if(prefs.randomOrder && Array.isArray(prefs.randomOrder)) randomOrder = prefs.randomOrder;
       }catch(e){ /* ignore malformed cookie */ }
     }
@@ -296,6 +314,12 @@
     function renderPaginationControls(){
       const ctr = document.getElementById('paginationControls');
       if(!ctr) return;
+      if(paginationDisabled){
+        ctr.style.display = 'none';
+        return;
+      } else {
+        ctr.style.display = 'flex';
+      }
       ctr.innerHTML = '';
       const totalPages = Math.max(1, Math.ceil((filteredCount || 0) / perPage));
       const prev = document.createElement('button'); prev.className = 'btn btn-ghost'; prev.textContent = '◀ Prev';
@@ -307,7 +331,7 @@
       const pageInfo = document.createElement('div'); pageInfo.className = 'muted'; pageInfo.textContent = `Page ${currentPage} / ${totalPages}`;
       const perSel = document.createElement('select'); perSel.style.marginLeft = '8px'; perSel.innerHTML = '<option value="25">25</option><option value="50">50</option><option value="100">100</option>';
       perSel.value = String(perPage);
-      perSel.addEventListener('change', ()=>{ perPage = Number(perSel.value); loadPage(1); });
+      perSel.addEventListener('change', ()=>{ perPage = Number(perSel.value); try{ savePrefs(); }catch(e){} loadPage(1); });
       const goto = document.createElement('input'); goto.type='number'; goto.min=1; goto.style.width='72px'; goto.placeholder='Go to page'; goto.addEventListener('change', ()=>{ const v = Number(goto.value||0); if(v>=1 && v<=totalPages) loadPage(v); });
       ctr.appendChild(prev);
       ctr.appendChild(pageInfo);
@@ -315,6 +339,10 @@
       ctr.appendChild(document.createTextNode(' per page:'));
       ctr.appendChild(perSel);
       ctr.appendChild(goto);
+      // ensure navigation updates are persisted
+      prev.addEventListener('click', ()=>{ try{ savePrefs(); }catch(e){} });
+      next.addEventListener('click', ()=>{ try{ savePrefs(); }catch(e){} });
+      goto.addEventListener('change', ()=>{ try{ savePrefs(); }catch(e){} });
     }
 
     function updateSortedHeader(){
@@ -360,8 +388,10 @@
       const maxS = (maxSubsRaw === '') ? Infinity : Number(maxSubsRaw);
       const showAvailable = document.getElementById('showAvailable') ? document.getElementById('showAvailable').checked : true;
       const showB = document.getElementById('showBanned').checked;
-      const showNSFW = document.getElementById('showNSFW') ? document.getElementById('showNSFW').checked : true;
-      const showNonNSFW = document.getElementById('showNonNSFW') ? document.getElementById('showNonNSFW').checked : false;
+      let showNSFW = document.getElementById('showNSFW') ? document.getElementById('showNSFW').checked : true;
+      let showNonNSFW = document.getElementById('showNonNSFW') ? document.getElementById('showNonNSFW').checked : false;
+      // When "Show unavailable" is selected, ignore content filters (treat both as enabled)
+      if(showB){ showNSFW = true; showNonNSFW = true; }
       const sort = currentSort;
       let list = data.slice();
       if(q){
@@ -375,18 +405,46 @@
           return searchTerms.some(t => name.includes(t) || display.includes(t) || displayNoPrefix.includes(t) || desc.includes(t) || title.includes(t));
         });
       }
-      // availability filter logic (independent toggles):
-      // - If either checkbox is checked, include only matching groups.
-      // - If neither is checked, include all subreddits.
-      if(showAvailable || showB){
-        list = list.filter(s => (showAvailable && !s.is_banned) || (showB && s.is_banned));
-      }
-      // NSFW filtering using two independent toggles:
-      // - If either is checked, include only matching groups.
-      // - If neither is checked, include all.
-      // Treat NULL/undefined as NSFW; only explicit `false` is non-NSFW.
-      if(showNSFW || showNonNSFW){
-        list = list.filter(s => (showNSFW && (s.over18 === true || s.over18 == null)) || (showNonNSFW && s.over18 === false));
+      // Availability and NSFW filters are now explicit groups. Require at least
+      // one selection in each group; if a group has no selected options, show
+      // no results so the user must choose a filter.
+      // Availability semantics:
+      // - Show available: subreddits where `not_found` is not true (false or NULL)
+      // - Show unavailable: subreddits where `not_found` == true OR `is_banned` == true
+      // NSFW semantics:
+      // - Show NSFW: `over18 === true` OR NULL
+      // - Show Non-NSFW: `over18 === false`
+      const anyAvailability = showAvailable || showB;
+      const anyNSFW = showNSFW || showNonNSFW;
+
+      // If availability group is empty, nothing should show
+      if(!anyAvailability){
+        list = [];
+      } else {
+        // First apply availability filtering (this determines available vs unavailable)
+        list = list.filter(s => {
+          const isNotFound = (s.not_found === true);
+          const isBanned = (s.is_banned === true);
+          const isUnavailable = isNotFound || isBanned;
+          const isAvailable = !isUnavailable;
+          return (showAvailable && isAvailable) || (showB && isUnavailable);
+        });
+
+        // Now handle NSFW: unavailable/banned items bypass NSFW checks so
+        // "Show unavailable" works regardless of NSFW toggles. Available
+        // items are filtered by the NSFW selections; if no NSFW selection is
+        // made, available items are excluded while unavailable items remain.
+        if(!anyNSFW){
+          // keep only unavailable/banned items
+          list = list.filter(s => (s.not_found === true) || (s.is_banned === true));
+        } else {
+          // apply NSFW filtering to available items, but let unavailable items through
+          list = list.filter(s => {
+            const isUnavailable = (s.not_found === true) || (s.is_banned === true);
+            if(isUnavailable) return true;
+            return (showNSFW && (s.over18 === true || s.over18 == null)) || (showNonNSFW && s.over18 === false);
+          });
+        }
       }
       list = list.filter(s => (s.mentions||0) >= minM);
       if(Number.isFinite(maxM)){
@@ -420,15 +478,11 @@
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         if(s.is_banned){
-          // show struck-through subreddit name, but append (Banned) unstruck
+          // show struck-through subreddit name (no explicit "(Banned)" text)
           const nameSpan = document.createElement('span');
           nameSpan.textContent = s.display_name_prefixed || ('/r/' + s.name);
           nameSpan.classList.add('banned');
           a.appendChild(nameSpan);
-          const banSpan = document.createElement('span');
-          banSpan.textContent = ' (Banned)';
-          banSpan.className = 'muted';
-          a.appendChild(banSpan);
         } else if(s.not_found){
           // mark not found with dark gray italic and append (Not found)
           a.classList.add('not-found');
@@ -476,7 +530,10 @@
         tr.appendChild(mentionsTd);
         const subsTd = document.createElement('td');
         subsTd.classList.add('col-subscribers');
-        if (isUnprocessed) {
+        // For banned subreddits we show an em-dash to indicate unavailable subscriber count
+        if (s.is_banned) {
+          subsTd.textContent = '—';
+        } else if (isUnprocessed) {
           const sp = document.createElement('span'); sp.className = 'muted'; sp.textContent = 'N/A';
           subsTd.appendChild(sp);
         } else {
@@ -513,13 +570,34 @@
         tr.appendChild(descTd);
         tbody.appendChild(tr);
       }
-      document.getElementById('count').textContent = `${filteredCount} filtered out of ${dbTotal} in database`;
+      document.getElementById('count').textContent = `Showing ${filteredCount} out of ${dbTotal} in database`;
       // update header count as well (show overall DB total)
       const hc = document.getElementById('headerSubCount');
       if(hc) hc.textContent = `${dbTotal} subreddits found`;
       updateColumnVisibility(list);
       // Persist current filter/sort/listing preferences so back-navigation preserves state
       try{ savePrefs(); }catch(e){}
+      // Show a helpful hint when no results are present to explain why
+      try{
+        const hintEl = document.getElementById('emptyHint');
+        if(!hintEl) throw 0;
+        if(list.length === 0){
+          if(!anyAvailability){
+            hintEl.textContent = 'No availability option selected — enable "Show Available" or "Show unavailable" to see results.';
+            // when filters are empty and list is empty, disable pagination
+            paginationDisabled = true;
+          } else if(!anyNSFW){
+            hintEl.textContent = 'No NSFW option selected — enable "Show NSFW" or "Show Non-NSFW" (or enable "Show unavailable") to see items.';
+            paginationDisabled = true;
+          } else {
+            hintEl.textContent = 'No results — try widening your filters (search, mentions, subscribers, availability, NSFW).';
+            paginationDisabled = false;
+          }
+        } else {
+          hintEl.textContent = '';
+          paginationDisabled = false;
+        }
+      }catch(e){/* ignore */}
     }
 
     // Periodically refresh the total subreddit count without reloading the page.
@@ -534,7 +612,7 @@
           dbTotal = newDbTotal;
         }
         // update displayed counts
-        document.getElementById('count').textContent = `${filteredCount} filtered out of ${dbTotal} in database`;
+        document.getElementById('count').textContent = `Showing ${filteredCount} out of ${dbTotal} in database`;
         const hc = document.getElementById('headerSubCount');
         if(hc) hc.textContent = `${dbTotal} subreddits found`;
       }catch(e){ /* ignore errors */ }
@@ -568,7 +646,7 @@
       clearQueryBtn.addEventListener('click', ()=>{ qEl.value = ''; clearQueryBtn.style.display = 'none'; try{ savePrefs(); }catch(e){} loadPage(1); });
     }
 
-    // Explanation button: opens modal; move between header and filter popout on resize
+    // About button: opens modal; move between header and filter popout on resize
     (function(){
       const explainId = 'explainBtn';
       const infoText = 'How data is collected:\n\n- The scanner periodically reads recent Reddit posts and extracts references to subreddits.\n- Mentioned subreddits are recorded when a subreddit URL is named in a post or comment the scanner processes.\n\nWhat is a mention?\n\n- This is the count of distinct subreddits detected in the collected data, attempting to only counting a mention once per user who submitted it.\n\nUpdate frequency:\n\n- The scanner runs on a schedule (configured in deployment). The site reflects the last scanner run.';
@@ -579,9 +657,9 @@
           btn = document.createElement('button');
           btn.id = explainId;
           btn.className = 'info-btn';
-          btn.title = 'Explanation';
-          btn.setAttribute('aria-label','Explanation');
-          btn.textContent = 'Explanation';
+          btn.title = 'About';
+          btn.setAttribute('aria-label','About');
+          btn.textContent = 'About';
           // default place in header if possible
           const h = document.querySelector('h1');
           if(h) h.insertBefore(btn, document.getElementById('headerSubCount'));
@@ -615,43 +693,7 @@
       placeExplainButton();
       window.addEventListener('resize', ()=>{ placeExplainButton(); placeOptionsButton(); });
     })();
-    // Options popout: move the sort/listing labels into the popout on mobile
-    (function(){
-      const optionsId = 'optionsBtn';
-      const optionsPopId = 'optionsPop';
-      function ensureOptionsButton(){
-        let btn = document.getElementById(optionsId);
-        return btn;
-      }
-
-      function placeOptionsButton(){
-        // Options button is always visible; controls are authored inside
-        // the options popout in the HTML, so no dynamic moving/cloning is required.
-        const btn = ensureOptionsButton();
-        if(btn) btn.style.display = '';
-      }
-
-      // toggle behavior for the options popout
-      const optionsBtn = document.getElementById('optionsBtn');
-      const optionsPop = document.getElementById('optionsPop');
-      if(optionsBtn && optionsPop){
-        optionsBtn.addEventListener('click', (ev)=>{
-          ev.stopPropagation();
-          const newState = (optionsPop.style.display === 'block') ? 'none' : 'block';
-          optionsPop.style.display = newState;
-          // if opening options, close the filter popout
-          if(newState === 'block'){
-            const filterPopEl = document.getElementById('filterPop');
-            if(filterPopEl) filterPopEl.style.display = 'none';
-          }
-        });
-        document.addEventListener('click', (ev)=>{ if(optionsPop.style.display === 'block' && !optionsPop.contains(ev.target) && ev.target !== optionsBtn) optionsPop.style.display = 'none'; });
-        optionsPop.addEventListener('click', (ev)=> ev.stopPropagation());
-      }
-      // initial placement and resize handler
-      placeOptionsButton();
-      window.addEventListener('resize', ()=>{ placeOptionsButton(); });
-    })();
+    // Options integrated into filter popout; old Options popout removed.
     // header click sorting: set sort key and toggle direction if same key
     document.querySelectorAll('th[data-sort]').forEach(th => {
       th.style.cursor = 'pointer';
@@ -718,11 +760,7 @@
         ev.stopPropagation();
         const newState = (filterPop.style.display === 'block') ? 'none' : 'block';
         filterPop.style.display = newState;
-        // if opening filters, close the options popout
-        if(newState === 'block'){
-          const optionsPopEl = document.getElementById('optionsPop');
-          if(optionsPopEl) optionsPopEl.style.display = 'none';
-        }
+        // filters now contain the Options section directly
       });
       // close when clicking outside
       document.addEventListener('click', (ev)=>{
@@ -734,22 +772,19 @@
       filterPop.addEventListener('click', (ev)=> ev.stopPropagation());
       const closePop = document.getElementById('closeFilterPop');
       if(closePop) closePop.addEventListener('click', ()=> filterPop.style.display = 'none');
-      const clearBtn = document.getElementById('clearFilters');
-      if(clearBtn){
-        clearBtn.addEventListener('click', ()=>{
-          const mm = document.getElementById('minMentions'); if(mm) mm.value = '';
-          const mM = document.getElementById('maxMentions'); if(mM) mM.value = '';
-          const ms = document.getElementById('minSubscribers'); if(ms) ms.value = '';
-          const mS = document.getElementById('maxSubscribers'); if(mS) mS.value = '';
-          try{ savePrefs(); }catch(e){}
-          loadPage(1);
-        });
-      }
+      // `Clear` button removed from UI; use Reset or manually toggle filters.
       // wire show toggles and the popout Show/Hide-all button
       const showAvailableEl = document.getElementById('showAvailable');
       const showBannedEl = document.getElementById('showBanned');
       const showNSFWEl = document.getElementById('showNSFW');
       const showNonNSFWEl = document.getElementById('showNonNSFW');
+      function updateContentFilterControls(){
+        try{
+          const disabled = !!(showBannedEl && showBannedEl.checked);
+          if(showNSFWEl) showNSFWEl.disabled = disabled;
+          if(showNonNSFWEl) showNonNSFWEl.disabled = disabled;
+        }catch(e){/* ignore */}
+      }
       const showAllBtn = document.getElementById('showAll');
       function updateShowAllLabel(){
         if(!showAllBtn) return;
@@ -759,8 +794,29 @@
         const snt = showNonNSFWEl ? showNonNSFWEl.checked : false;
         showAllBtn.textContent = (sa && sb && sn && snt) ? 'Hide all' : 'Show all';
       }
-      if(showAvailableEl) showAvailableEl.addEventListener('change', (e)=>{ updateShowAllLabel(); try{ savePrefs(); }catch(err){} loadPage(1); });
-      if(showBannedEl) showBannedEl.addEventListener('change', (e)=>{ updateShowAllLabel(); try{ savePrefs(); }catch(err){} loadPage(1); });
+      if(showAvailableEl) showAvailableEl.addEventListener('change', (e)=>{
+        updateShowAllLabel();
+        try{
+          // If neither NSFW toggle is enabled, enable Show NSFW when user enables an availability filter
+          if(showNSFWEl && showNonNSFWEl && !showNSFWEl.checked && !showNonNSFWEl.checked){
+            showNSFWEl.checked = true;
+          }
+          savePrefs();
+        }catch(err){}
+        loadPage(1);
+      });
+      if(showBannedEl) showBannedEl.addEventListener('change', (e)=>{
+        updateShowAllLabel();
+        try{
+          if(showNSFWEl && showNonNSFWEl && !showNSFWEl.checked && !showNonNSFWEl.checked){
+            showNSFWEl.checked = true;
+          }
+          // disable/enable content filter controls when Show unavailable toggles
+          updateContentFilterControls();
+          savePrefs();
+        }catch(err){}
+        loadPage(1);
+      });
       if(showNSFWEl) showNSFWEl.addEventListener('change', (e)=>{ updateShowAllLabel(); try{ savePrefs(); }catch(err){} loadPage(1); });
       if(showNonNSFWEl) showNonNSFWEl.addEventListener('change', (e)=>{ updateShowAllLabel(); try{ savePrefs(); }catch(err){} loadPage(1); });
       if(showAllBtn){
@@ -780,7 +836,21 @@
           try{ savePrefs(); }catch(e){}
           loadPage(1);
         });
+        // wire the Reset button inside the popout to reuse the header Reset behavior
+        const resetPopBtn = document.getElementById('resetFiltersPop');
+        if(resetPopBtn){
+          resetPopBtn.addEventListener('click', ()=>{
+            try{
+              const hdr = document.getElementById('resetFilters');
+              if(hdr) hdr.click();
+            }catch(e){}
+            // close the popout after resetting
+            try{ filterPop.style.display = 'none'; }catch(e){}
+          });
+        }
       }
+      // initialize content filter controls state on load
+      try{ updateContentFilterControls(); }catch(e){}
     }
     document.getElementById('reload').addEventListener('click', ()=> loadPage(currentPage));
     document.getElementById('sortDir').addEventListener('click', ()=>{
@@ -806,6 +876,12 @@
       currentSortDir = 'desc';
       updateSortedHeader();
       loadPage(1);
+      try{
+        const ns = document.getElementById('showNSFW');
+        const nn = document.getElementById('showNonNSFW');
+        if(ns) ns.disabled = false;
+        if(nn) nn.disabled = false;
+      }catch(e){}
     });
 
     // when user changes the listing dropdown, update all subreddit links on the page
@@ -880,10 +956,10 @@
       content.textContent = htmlText || '';
     }
 
-    // initial load: restore preferences, then fetch first page and render
+    // initial load: restore preferences, then fetch the saved page and render
     loadPrefs();
     updateSortedHeader();
-    loadPage(1);
+    loadPage(currentPage);
   </script>
 </body>
 </html>
