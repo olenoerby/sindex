@@ -516,7 +516,7 @@
       document.getElementById('count').textContent = `${filteredCount} filtered out of ${dbTotal} in database`;
       // update header count as well (show overall DB total)
       const hc = document.getElementById('headerSubCount');
-      if(hc) hc.textContent = `${dbTotal} Unique subreddits scanned`;
+      if(hc) hc.textContent = `${dbTotal} subreddits found`;
       updateColumnVisibility(list);
       // Persist current filter/sort/listing preferences so back-navigation preserves state
       try{ savePrefs(); }catch(e){}
@@ -536,7 +536,7 @@
         // update displayed counts
         document.getElementById('count').textContent = `${filteredCount} filtered out of ${dbTotal} in database`;
         const hc = document.getElementById('headerSubCount');
-        if(hc) hc.textContent = `${dbTotal} Unique subreddits scanned`;
+        if(hc) hc.textContent = `${dbTotal} subreddits found`;
       }catch(e){ /* ignore errors */ }
     }
 
@@ -571,7 +571,7 @@
     // Explanation button: opens modal; move between header and filter popout on resize
     (function(){
       const explainId = 'explainBtn';
-      const infoText = 'How data is collected:\n\n- The scanner periodically reads recent Reddit posts and extracts references to subreddits.\n- Mentioned subreddits are recorded when a subreddit URL is named in a post or comment the scanner processes.\n\nWhat "Unique mentions" means:\n\n- This is the count of distinct subreddits detected in the collected data.\n\nUpdate frequency:\n\n- The scanner runs on a schedule (configured in deployment). The site reflects the last scanner run.';
+      const infoText = 'How data is collected:\n\n- The scanner periodically reads recent Reddit posts and extracts references to subreddits.\n- Mentioned subreddits are recorded when a subreddit URL is named in a post or comment the scanner processes.\n\nWhat is a mention?\n\n- This is the count of distinct subreddits detected in the collected data, attempting to only counting a mention once per user who submitted it.\n\nUpdate frequency:\n\n- The scanner runs on a schedule (configured in deployment). The site reflects the last scanner run.';
 
       function ensureButton(){
         let btn = document.getElementById(explainId);

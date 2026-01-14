@@ -560,4 +560,66 @@ def stats_top(limit: int = 20):
         return [{"name": r[0], "mentions": r[1]} for r in rows]
 
 
+@app.get("/stats/top_posts")
+def stats_top_posts(limit: int = 20):
+    """Top posts ordered by total mention count."""
+    limit = max(1, min(500, int(limit)))
+    with Session(engine) as session:
+        rows = session.query(
+            models.Post.reddit_post_id,
+            models.Post.title,
+            func.count(models.Mention.id).label('mentions')
+        ).join(models.Mention, models.Mention.post_id == models.Post.id, isouter=True)
+        rows = rows.group_by(models.Post.id).order_by(desc('mentions')).limit(limit).all()
+        out = []
+        for r in rows:
+            out.append({
+                'reddit_post_id': r[0],
+                'title': r[1],
+                'mentions': int(r[2] or 0)
+            })
+        return {"items": out}
+
+
+@app.get("/stats/top_unique_posts")
+def stats_top_unique_posts(limit: int = 20):
+    """Posts ordered by number of distinct subreddits mentioned in the post's comments."""
+    limit = max(1, min(500, int(limit)))
+    with Session(engine) as session:
+        # Count distinct subreddit_id per post via mentions
+        rows = session.query(
+            models.Post.reddit_post_id,
+            models.Post.title,
+            func.count(func.distinct(models.Mention.subreddit_id)).label('unique_subreddits')
+        ).join(models.Mention, models.Mention.post_id == models.Post.id, isouter=True)
+        rows = rows.group_by(models.Post.id).order_by(desc('unique_subreddits')).limit(limit).all()
+        out = []
+        for r in rows:
+            out.append({
+                'reddit_post_id': r[0],
+                'title': r[1],
+                'unique_subreddits': int(r[2] or 0)
+            })
+        return {"items": out}
+
+
+@app.get("/stats/top_commenters")
+def stats_top_commenters(limit: int = 20):
+    """Top users by number of comments (user_id)."""
+    limit = max(1, min(500, int(limit)))
+    with Session(engine) as session:
+        rows = session.query(
+            models.Comment.user_id,
+            func.count(models.Comment.id).label('comments')
+        ).filter(models.Comment.user_id != None)
+        rows = rows.group_by(models.Comment.user_id).order_by(desc('comments')).limit(limit).all()
+        out = []
+        for r in rows:
+            out.append({
+                'user_id': r[0],
+                'comments': int(r[1] or 0)
+            })
+        return {"items": out}
+
+
 # Removed endpoint: GET /subreddits/count — use GET /stats for aggregated counts instead.
