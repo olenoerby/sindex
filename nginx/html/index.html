@@ -161,7 +161,7 @@
 
       <div class="muted" id="count"></div>
       <div class="muted" id="emptyHint" style="margin-top:8px"></div>
-      <div id="paginationControls" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"></div>
+      <div id="paginationControls" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;justify-content:center"></div>
       <div class="table-wrap card" style="padding:0;margin-top:12px">
       <table id="tbl">
     <thead>
@@ -178,7 +178,7 @@
   </table>
   </div>
     </div>
-    <div id="paginationControlsBottom" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"></div>
+    <div id="paginationControlsBottom" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;justify-content:center"></div>
     
     <!-- Floating About button underneath the table (bottom-right) -->
     <button id="explainBtn" class="about-fab" title="About" aria-label="About">?</button>
@@ -306,7 +306,14 @@
     function buildFilterQueryParams(){
       try{
         const parts = [];
-        const q = (document.getElementById('q') && document.getElementById('q').value) ? String(document.getElementById('q').value).trim() : '';
+        // Normalize query: strip leading '/r/' or 'r/' so users can paste '/r/name' or 'r/name'
+        const qraw = (document.getElementById('q') && document.getElementById('q').value) ? String(document.getElementById('q').value).trim() : '';
+        // strip full reddit URL (/r/name, r/name, or reddit.com/r/name)
+        let q = qraw.replace(/^https?:\/\/(?:www\.)?reddit\.com\/r\//i, '');
+        q = q.replace(/^\/?r\//i, '').trim();
+        // also accept 'rname' (no slash) and strip leading 'r' when it looks like r<subreddit>
+        const m = qraw.match(/^r([A-Za-z0-9_]{3,21})$/i);
+        if(m){ q = m[1]; }
         if(q) parts.push('q=' + encodeURIComponent(q));
         const mm = document.getElementById('minMentions') ? document.getElementById('minMentions').value : '';
         if(mm) parts.push('min_mentions=' + encodeURIComponent(mm));
@@ -358,11 +365,11 @@
         ctr.style.gap = '8px';
         ctr.style.alignItems = 'center';
 
-        const first = document.createElement('button'); first.className = 'btn btn-ghost'; first.textContent = 'First';
+        const first = document.createElement('button'); first.className = 'btn btn-ghost'; first.textContent = '«'; first.setAttribute('aria-label','First page');
         first.disabled = currentPage <= 1;
         first.addEventListener('click', ()=>{ if(currentPage>1) { loadPage(1); try{ savePrefs(); }catch(e){} } });
 
-        const prev = document.createElement('button'); prev.className = 'btn btn-ghost'; prev.textContent = '◀ Prev';
+        const prev = document.createElement('button'); prev.className = 'btn btn-ghost'; prev.textContent = '◀'; prev.setAttribute('aria-label','Previous page');
         prev.disabled = currentPage <= 1;
         prev.addEventListener('click', ()=>{ if(currentPage>1) { loadPage(currentPage-1); try{ savePrefs(); }catch(e){} } });
 
@@ -370,17 +377,17 @@
         pageInput.type = 'number';
         pageInput.min = 1;
         pageInput.max = totalPages;
-        pageInput.style.width = '80px';
+        pageInput.style.width = '56px';
         pageInput.className = 'muted';
         pageInput.value = String(currentPage);
         pageInput.addEventListener('change', ()=>{ const v = Number(pageInput.value||0); if(v>=1 && v<=totalPages){ loadPage(v); try{ savePrefs(); }catch(e){} } else { pageInput.value = String(currentPage); } });
         const pageTotal = document.createElement('span'); pageTotal.className = 'muted'; pageTotal.style.marginLeft = '6px'; pageTotal.textContent = '/ ' + String(totalPages);
 
-        const next = document.createElement('button'); next.className = 'btn btn-ghost'; next.textContent = 'Next ▶';
+        const next = document.createElement('button'); next.className = 'btn btn-ghost'; next.textContent = '▶'; next.setAttribute('aria-label','Next page');
         next.disabled = currentPage >= totalPages;
         next.addEventListener('click', ()=>{ if(currentPage<totalPages) { loadPage(currentPage+1); try{ savePrefs(); }catch(e){} } });
 
-        const last = document.createElement('button'); last.className = 'btn btn-ghost'; last.textContent = 'Last';
+        const last = document.createElement('button'); last.className = 'btn btn-ghost'; last.textContent = '»'; last.setAttribute('aria-label','Last page');
         last.disabled = currentPage >= totalPages;
         last.addEventListener('click', ()=>{ if(currentPage<totalPages) { loadPage(totalPages); try{ savePrefs(); }catch(e){} } });
 
