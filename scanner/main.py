@@ -33,14 +33,11 @@ REDDIT_USER = os.getenv('REDDIT_USER', 'WeirdPineapple')
 API_RATE_DELAY = float(os.getenv('API_RATE_DELAY', '6.5'))
 # Number of days to consider subreddit metadata fresh before re-fetching from Reddit.
 # Can be set via `SUBREDDIT_META_CACHE_DAYS`; falls back to legacy `META_CACHE_DAYS` if present.
-SUBREDDIT_META_CACHE_DAYS = int(os.getenv('SUBREDDIT_META_CACHE_DAYS') or os.getenv('META_CACHE_DAYS') or '7')
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
 SUBABOUT_MAX_RETRIES = int(os.getenv('SUBABOUT_MAX_RETRIES', '3'))
 HTTP_REQUEST_TIMEOUT = float(os.getenv('HTTP_REQUEST_TIMEOUT', '15'))
-# When idle (no more user posts), scan for subreddits missing metadata and update up to this many
-MISSING_META_BATCH = int(os.getenv('MISSING_META_BATCH', '2000'))
-# Seconds to sleep between batches when doing idle sweeping of outdated metadata
-IDLE_BATCH_SLEEP_SECONDS = float(os.getenv('IDLE_BATCH_SLEEP_SECONDS', '5'))
+# NOTE: metadata freshness is not cached by days; metadata is refreshed
+# immediately after discovery during each scan.
 # Optional testing controls:
 # If set, scanner will only process up to this many Friday posts and then exit.
 TEST_POST_LIMIT = int(os.getenv('TEST_POST_LIMIT')) if os.getenv('TEST_POST_LIMIT') else None
@@ -467,17 +464,9 @@ def process_post(post_item, session: Session):
                     logger.info(f"Existing subreddit encountered: /r/{sname}")
                 except Exception:
                     logger.debug(f"Encountered /r/{sname} (logging failed)")
-                # ensure metadata is refreshed on discovery if stale
+                # Always refresh metadata on discovery (schedule for immediate update)
                 try:
-                    # if metadata looks stale or missing, schedule refresh
-                    now = datetime.utcnow()
-                    needs = False
-                    if not sub.display_name and not sub.title and not sub.public_description_html and not sub.subscribers:
-                        needs = True
-                    elif sub.last_checked is None or (now - sub.last_checked) >= timedelta(days=SUBREDDIT_META_CACHE_DAYS):
-                        needs = True
-                    if needs:
-                        discovered.add(sname)
+                    discovered.add(sname)
                 except Exception:
                     session.rollback()
 
@@ -565,14 +554,7 @@ def process_post(post_item, session: Session):
                     discovered.add(sname)
                 else:
                     try:
-                        now = datetime.utcnow()
-                        needs = False
-                        if not sub.display_name and not sub.title and not sub.public_description_html and not sub.subscribers:
-                            needs = True
-                        elif sub.last_checked is None or (now - sub.last_checked) >= timedelta(days=SUBREDDIT_META_CACHE_DAYS):
-                            needs = True
-                        if needs:
-                            discovered.add(sname)
+                        discovered.add(sname)
                     except Exception:
                         session.rollback()
 
@@ -638,36 +620,9 @@ def process_post(post_item, session: Session):
 
 
 def update_subreddit_metadata(session: Session, sub: models.Subreddit):
-    # Only refresh if last_checked older than SUBREDDIT_META_CACHE_DAYS
-    # Note: DB may set `last_checked` via server_default on insert even though
-    # we haven't fetched metadata yet. If the subreddit record lacks any
-    # meaningful metadata, proceed to fetch regardless of a recent last_checked.
-    now = datetime.utcnow()
-    if sub.last_checked and (now - sub.last_checked) < timedelta(days=SUBREDDIT_META_CACHE_DAYS):
-        # Only skip fetching if all key metadata fields are present. The
-        # previous logic skipped when ANY field existed, which caused cases
-        # where a subreddit missing `title` or `subscribers` would be incorrectly
-        # treated as up-to-date. Ensure we refresh if any important field is
-        # still missing.
-        try:
-            has_display = sub.display_name is not None and str(sub.display_name).strip() != ''
-        except Exception:
-            has_display = False
-        try:
-            has_title = sub.title is not None and str(sub.title).strip() != ''
-        except Exception:
-            has_title = False
-        try:
-            has_desc = sub.public_description_html is not None and str(sub.public_description_html).strip() != ''
-        except Exception:
-            has_desc = False
-        try:
-            has_subs = sub.subscribers is not None
-        except Exception:
-            has_subs = False
-
-        if has_display and has_title and has_desc and has_subs:
-            return
+    # Always attempt to refresh metadata when called. This scanner configuration
+    # updates subreddit metadata immediately after discovery, so do not rely on
+    # any time-based caching logic here.
     try:
         r = fetch_sub_about(sub.name)
         if r.status_code == 200:
@@ -829,39 +784,9 @@ def main_loop():
                 # helps populate the UI without waiting for the next scanner
                 # run.
                 try:
-                    with Session(engine) as sess2:
-                        api_logger = logger
-                        api_logger.info(f"No more user posts; sweeping outdated metadata in batches of {MISSING_META_BATCH}")
-                        # Continually process batches of outdated or never-checked subreddits
-                        # until none remain (Option B): select rows where last_checked
-                        # is NULL or older than the configured cache window.
-                        cutoff = datetime.utcnow() - timedelta(days=SUBREDDIT_META_CACHE_DAYS)
-                        while True:
-                            rows = sess2.query(models.Subreddit).filter(
-                                (models.Subreddit.last_checked == None) |
-                                (models.Subreddit.last_checked <= cutoff)
-                            ).order_by(models.Subreddit.last_checked.asc().nullsfirst()).limit(MISSING_META_BATCH).all()
-                            if not rows:
-                                api_logger.info('No outdated subreddits found; idle sweep complete')
-                                break
-                            api_logger.info(f"Refreshing metadata for {len(rows)} outdated subreddits (batch)")
-                            for s in rows:
-                                try:
-                                    update_subreddit_metadata(sess2, s)
-                                except Exception:
-                                    sess2.rollback()
-                                    api_logger.exception(f"Failed to refresh metadata for /r/{s.name}")
-                            # pause between batches to avoid hammering Reddit and DB
-                            try:
-                                if IDLE_BATCH_SLEEP_SECONDS and IDLE_BATCH_SLEEP_SECONDS > 0:
-                                    api_logger.info(f"Sleeping {IDLE_BATCH_SLEEP_SECONDS}s between idle batches")
-                                    time.sleep(IDLE_BATCH_SLEEP_SECONDS)
-                            except Exception:
-                                pass
+                    logger.info('No more user posts; idle. Sleeping for 6 hours.')
                 except Exception:
-                    logger.exception('Idle metadata refresh failed')
-                # Finally, sleep for the configured idle period
-                logger.info('Reached end of user posts. Sleeping for 6 hours.')
+                    pass
                 time.sleep(6 * 3600)
         except Exception as e:
             logger.exception(f"Scanner main loop error: {e}")
