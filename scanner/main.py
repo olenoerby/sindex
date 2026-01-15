@@ -3,6 +3,7 @@ import re
 import time
 import json
 import logging
+from dotenv import load_dotenv
 # file-based rotating logs removed; rely on container stdout/stderr
 from datetime import datetime, timedelta
 import httpx
@@ -12,6 +13,10 @@ import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
 import models
+
+# Load environment variables from .env at repo root so values like
+# `POST_COMMENT_LOOKBACK_DAYS` can be set without editing `main.py`.
+load_dotenv()
 
 # Note: metadata fetch will be performed synchronously when discovering subreddits
 
@@ -31,6 +36,12 @@ logger.propagate = False
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple')
 REDDIT_USER = os.getenv('REDDIT_USER', 'WeirdPineapple')
 API_RATE_DELAY = float(os.getenv('API_RATE_DELAY', '6.5'))
+# How many days back to rescan existing posts for new/edited comments.
+# Set `POST_COMMENT_LOOKBACK_DAYS` to 0 to skip rescanning existing posts.
+try:
+    POST_COMMENT_LOOKBACK_DAYS = int(os.getenv('POST_COMMENT_LOOKBACK_DAYS', '180'))
+except Exception:
+    POST_COMMENT_LOOKBACK_DAYS = 180
 # Number of days to consider subreddit metadata fresh before re-fetching from Reddit.
 # Can be set via `SUBREDDIT_META_CACHE_DAYS`; falls back to legacy `META_CACHE_DAYS` if present.
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
@@ -335,7 +346,8 @@ def process_post(post_item, session: Session):
     # skipped to avoid reprocessing a large backlog.
     existing = session.query(models.Post).filter_by(reddit_post_id=reddit_id).first()
     now = datetime.utcnow()
-    six_months_ago_ts = int((now - timedelta(days=182)).timestamp())
+    # Use configured lookback days to determine whether to re-scan comments
+    six_months_ago_ts = int((now - timedelta(days=POST_COMMENT_LOOKBACK_DAYS)).timestamp())
     if existing:
         # If the post is older than six months, skip re-scanning comments.
         try:
@@ -343,7 +355,7 @@ def process_post(post_item, session: Session):
         except Exception:
             post_created = 0
         if post_created and post_created < six_months_ago_ts:
-            logger.info(f"Post {reddit_id} already in DB and older than 6 months, skipping comments")
+            logger.info(f"Post {reddit_id} already in DB and older than {POST_COMMENT_LOOKBACK_DAYS} days, skipping comments")
             return (True, set())
         # Otherwise, allow re-scan below to detect new or edited comments
 
@@ -692,6 +704,10 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
             except Exception:
                 pass
             sub.is_banned = sub.is_banned or False
+            try:
+                logger.info(f"Updated metadata for /r/{sub.name}: display_name='{sub.display_name}', subscribers={sub.subscribers}")
+            except Exception:
+                logger.debug(f"Metadata updated for /r/{sub.name} (logging failed)")
         elif 300 <= r.status_code < 400:
             # treat redirects as 'not found' for our purposes
             sub.not_found = True
@@ -702,9 +718,19 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                     sub.ban_reason = str(payload.get('reason'))
             except Exception:
                 pass
+            try:
+                logger.info(f"/r/{sub.name} returned redirect ({r.status_code}); marked not_found")
+            except Exception:
+                pass
         elif r.status_code in (403, 404):
-            sub.is_banned = True
-            sub.not_found = False
+            # Distinguish between forbidden (403) and not found (404).
+            if r.status_code == 403:
+                sub.is_banned = True
+                sub.not_found = False
+            else:
+                # 404 -> subreddit does not exist; mark as not_found so UI can hide it
+                sub.not_found = True
+                sub.is_banned = False
             # if response body includes reason, save it
             try:
                 payload = r.json()
@@ -712,8 +738,16 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                     sub.ban_reason = str(payload.get('reason'))
             except Exception:
                 pass
+            try:
+                logger.info(f"/r/{sub.name} returned {r.status_code}; is_banned={sub.is_banned}, not_found={sub.not_found}")
+            except Exception:
+                pass
         else:
             logger.warning(f"Unexpected status {r.status_code} for /r/{sub.name}")
+            try:
+                logger.info(f"/r/{sub.name} unexpected status {r.status_code}")
+            except Exception:
+                pass
     except Exception as e:
         logger.exception(f"Error fetching about for /r/{sub.name}: {e}")
     finally:
@@ -724,7 +758,14 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
         except Exception:
             pass
         session.add(sub)
-        session.commit()
+        try:
+            session.commit()
+            try:
+                logger.info(f"Recorded last_checked and committed metadata for /r/{sub.name}")
+            except Exception:
+                pass
+        except Exception:
+            session.rollback()
 
 
 # metadata_worker removed: metadata is fetched synchronously during discovery
@@ -745,6 +786,7 @@ def main_loop():
                 continue
             with Session(engine) as session:
                 discovered_overall = set()
+                exit_after_batch = False
                 for p in children:
                     # If TEST_POST_IDS is set, skip posts not in the list
                     pid = p.get('data', {}).get('id')
@@ -757,8 +799,9 @@ def main_loop():
                         discovered_overall.update(discovered)
                     # If TEST_POST_LIMIT is set, exit once we've processed that many Friday posts
                     if TEST_POST_LIMIT and processed_count >= TEST_POST_LIMIT:
-                        logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, exiting.")
-                        return
+                        logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, stopping after this batch to refresh metadata.")
+                        exit_after_batch = True
+                        break
 
                 # After processing posts in this batch, refresh subreddit metadata for
                 # all discovered or-stale subreddits in one pass to reduce frequent
@@ -767,26 +810,108 @@ def main_loop():
                     logger.info(f"Refreshing metadata for {len(discovered_overall)} subreddits discovered in this batch")
                     for sname in discovered_overall:
                         try:
+                            logger.info(f"Refreshing metadata for /r/{sname}")
                             sub = session.query(models.Subreddit).filter_by(name=sname).first()
                             if sub:
+                                # Skip banned subreddits
+                                try:
+                                    if getattr(sub, 'is_banned', False):
+                                        logger.info(f"Skipping metadata refresh for banned /r/{sname}")
+                                        continue
+                                except Exception:
+                                    pass
                                 try:
                                     update_subreddit_metadata(session, sub)
                                 except Exception:
                                     session.rollback()
                         except Exception:
                             logger.exception(f"Failed to refresh metadata for /r/{sname}")
+                if exit_after_batch:
+                    logger.info('TEST_POST_LIMIT reached; performing missing-metadata refresh before exiting')
+                    try:
+                        try:
+                            from sqlalchemy import or_
+                            missing_q = session.query(models.Subreddit).filter(
+                                or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
+                                or_(models.Subreddit.title == None, models.Subreddit.title == ''),
+                                or_(models.Subreddit.description == None, models.Subreddit.description == ''),
+                                models.Subreddit.subscribers == None
+                            )
+                            # Order by last_checked ascending so oldest (and NULL) are refreshed first
+                            try:
+                                missing = missing_q.order_by(models.Subreddit.last_checked.asc().nullsfirst()).all()
+                            except Exception:
+                                # Fallback if nullsfirst() isn't available in this SQLAlchemy version
+                                missing = missing_q.order_by(models.Subreddit.last_checked.asc()).all()
+                        except Exception:
+                            session.rollback()
+                            missing = []
+
+                        if missing:
+                            logger.info(f"Found {len(missing)} subreddits missing metadata; refreshing now (post-limit path)")
+                            for sub in missing:
+                                try:
+                                    # Skip banned subreddits
+                                    try:
+                                        if getattr(sub, 'is_banned', False):
+                                            logger.info(f"Skipping post-limit idle-refresh for banned /r/{sub.name}")
+                                            continue
+                                    except Exception:
+                                        pass
+                                    logger.info(f"Post-limit idle-refresh: refreshing /r/{sub.name}")
+                                    update_subreddit_metadata(session, sub)
+                                except Exception:
+                                    session.rollback()
+                    except Exception:
+                        logger.exception('Error during post-limit missing metadata refresh')
+
+                    logger.info('Exiting after metadata refresh (TEST_POST_LIMIT path)')
+                    return
             # pagination
             after = data.get('data', {}).get('after')
             if not after:
                 # No more pages of user posts. Before sleeping, attempt to
                 # refresh metadata for subreddits that are missing key fields
-                # (display name, title, description or subscriber count). This
-                # helps populate the UI without waiting for the next scanner
-                # run.
+                # (display_name, title, description or subscriber count).
+                # This performs a single immediate pass so the UI can be
+                # populated without waiting for the next scanner run.
                 try:
-                    logger.info('No more user posts; idle. Sleeping for 6 hours.')
+                    logger.info('No more user posts; scanning for subreddits missing metadata')
+                    with Session(engine) as session:
+                        try:
+                            from sqlalchemy import or_
+                            missing_q = session.query(models.Subreddit).filter(
+                                or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
+                                or_(models.Subreddit.title == None, models.Subreddit.title == ''),
+                                or_(models.Subreddit.description == None, models.Subreddit.description == ''),
+                                models.Subreddit.subscribers == None
+                            )
+                            # Order by last_checked ascending so oldest (and NULL) are refreshed first
+                            try:
+                                missing = missing_q.order_by(models.Subreddit.last_checked.asc().nullsfirst()).all()
+                            except Exception:
+                                missing = missing_q.order_by(models.Subreddit.last_checked.asc()).all()
+                        except Exception:
+                            session.rollback()
+                            missing = []
+
+                        if missing:
+                            logger.info(f"Found {len(missing)} subreddits missing metadata; refreshing now")
+                            for sub in missing:
+                                try:
+                                    # Skip banned subreddits
+                                    try:
+                                        if getattr(sub, 'is_banned', False):
+                                            logger.info(f"Skipping idle-refresh for banned /r/{sub.name}")
+                                            continue
+                                    except Exception:
+                                        pass
+                                    logger.info(f"Idle-refresh: refreshing /r/{sub.name}")
+                                    update_subreddit_metadata(session, sub)
+                                except Exception:
+                                    session.rollback()
                 except Exception:
-                    pass
+                    logger.exception('Error during idle metadata refresh')
                 time.sleep(6 * 3600)
         except Exception as e:
             logger.exception(f"Scanner main loop error: {e}")
