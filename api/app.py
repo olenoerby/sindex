@@ -323,7 +323,16 @@ def list_subreddits(
                     subq = subq.order_by(desc(col) if sort_dir == 'desc' else col.asc())
                 else:
                     col = getattr(models.Subreddit, sort)
-                    subq = subq.order_by(desc(col) if sort_dir == 'desc' else col.asc())
+                    # For numeric columns where NULL means "unknown" (subscribers, active_users,
+                    # timestamps), place NULLs at the end so descending sort shows highest numbers first.
+                    nulls_last_cols = {'subscribers', 'active_users', 'created_utc', 'first_mentioned'}
+                    if sort in nulls_last_cols:
+                        if sort_dir == 'desc':
+                            subq = subq.order_by(desc(col).nulls_last())
+                        else:
+                            subq = subq.order_by(col.asc().nulls_last())
+                    else:
+                        subq = subq.order_by(desc(col) if sort_dir == 'desc' else col.asc())
         except Exception:
             subq = subq.order_by(desc('mentions'))
 
