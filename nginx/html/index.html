@@ -26,6 +26,8 @@
     .card{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 1px 2px rgba(15,23,42,0.04)}
     table{width:100%;border-collapse:collapse;margin-top:12px}
     th,td{padding:10px;border-bottom:1px solid #f1f5f9;text-align:left}
+    /* Ensure table cells vertically center their content so rows remain uniform */
+    tbody td{vertical-align:middle}
     th{font-weight:600;color:#0f172a;white-space:nowrap}
     tr:hover{background:#f8fafc}
     /* Zebra striping: light background for every 2nd row */
@@ -33,6 +35,8 @@
     .muted{color:var(--muted);font-size:0.9em}
     .badge{background:#eef2ff;color:var(--accent);padding:4px 8px;border-radius:999px;font-size:0.85em}
     .row-actions{display:flex;gap:8px;align-items:center}
+    /* Description button: fixed height and no wrap so it doesn't increase row height */
+    .col-description .btn{height:36px;min-height:36px;padding:6px 10px;display:inline-flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .spinner{width:18px;height:18px;border:3px solid #e6eefc;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;display:inline-block}
     @keyframes spin{to{transform:rotate(360deg)}}
     @media (max-width:900px){table{font-size:13px} .controls{gap:6px}}
