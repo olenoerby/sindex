@@ -40,12 +40,15 @@ docker-compose up -d
 Services: `api`, `scanner`, `db`, `nginx` (static UI).
 
 ### Environment
-Configure via `.env` (see defaults in `scanner/main.py` and `api/app.py`):
+Basic settings in `.env`:
 - `DATABASE_URL` (Postgres DSN)
-- `REDDIT_USER` (source user, default WeirdPineapple)
-- `SUBREDDITS_TO_SCAN` (comma list; default includes wowthissubexists)
-- `API_RATE_DELAY`, `HTTP_REQUEST_TIMEOUT`, `SUBABOUT_CONCURRENCY`, etc.
-- Frontend served by Nginx; adjust compose if you change ports.
+- `API_RATE_DELAY` (delay between Reddit API calls, default 7s)
+- `HTTP_REQUEST_TIMEOUT`, `SUBABOUT_CONCURRENCY`, etc.
+
+**Scan configuration is now database-driven** (no .env editing needed):
+- Use the `subreddit_scan_configs`, `ignored_subreddits`, and `ignored_users` tables
+- Scanner reloads configuration automatically each scan cycle
+- See [Configuration](#configuration) section below
 
 ## API (brief)
 - `GET /subreddits` – paginated, filters (mentions/subscribers ranges, availability, NSFW), sorting.
@@ -56,10 +59,119 @@ Configure via `.env` (see defaults in `scanner/main.py` and `api/app.py`):
 - Static UI under `nginx/html/` with search, sort, filters (mentions, subscribers, first-mentioned presets, availability, NSFW/SFW), pagination, and column sorting.
 - Links open to Reddit (configurable listing target).
 
+## Configuration
+
+### Database-Driven Scan Configuration
+The scanner uses database tables for configuration instead of `.env` variables. Changes take effect on the next scan cycle (no container restart needed).
+
+**Three configuration tables:**
+
+1. **`subreddit_scan_configs`** - Which subreddits to scan and how
+2. **`ignored_subreddits`** - Subreddits to never record mentions for
+3. **`ignored_users`** - Users whose mentions should not be recorded
+
+### Managing Scan Targets
+
+**Add a new subreddit to scan:**
+```sql
+-- Scan all posts from all users (NSFW only)
+INSERT INTO subreddit_scan_configs (subreddit_name, allowed_users, nsfw_only, active)
+VALUES ('newsubreddit', NULL, TRUE, TRUE);
+
+-- Scan posts from specific users only
+INSERT INTO subreddit_scan_configs (subreddit_name, allowed_users, nsfw_only, active)
+VALUES ('anothersubreddit', 'user1,user2,user3', FALSE, TRUE);
+```
+
+**Ignore a subreddit** (mentions from this subreddit won't be recorded):
+```sql
+INSERT INTO ignored_subreddits (subreddit_name, active)
+VALUES ('spamsubreddit', TRUE);
+```
+
+**Ignore a user** (this user's mentions won't be recorded):
+```sql
+INSERT INTO ignored_users (username, active)
+VALUES ('spamuser', TRUE);
+```
+
+**Enable/disable configs without deleting:**
+```sql
+-- Temporarily disable a scan target
+UPDATE subreddit_scan_configs SET active = FALSE WHERE subreddit_name = 'oldsubreddit';
+
+-- Re-enable it later
+UPDATE subreddit_scan_configs SET active = TRUE WHERE subreddit_name = 'oldsubreddit';
+```
+
+**View current configuration:**
+```sql
+-- Active scan targets
+SELECT subreddit_name, allowed_users, nsfw_only 
+FROM subreddit_scan_configs 
+WHERE active = TRUE;
+
+-- Active ignored subreddits
+SELECT subreddit_name FROM ignored_subreddits WHERE active = TRUE;
+
+-- Active ignored users
+SELECT username FROM ignored_users WHERE active = TRUE;
+```
+
+### Configuration Fields Explained
+
+**`subreddit_scan_configs` table:**
+- `subreddit_name`: Name of the subreddit to scan (without /r/ prefix)
+- `allowed_users`: Comma-separated usernames (e.g., `'user1,user2'`) or `NULL` for all users
+- `nsfw_only`: If `TRUE`, only process posts marked NSFW; if `FALSE`, process all posts
+- `active`: If `FALSE`, this config is ignored (allows temporary disable without deletion)
+
+**`ignored_subreddits` table:**
+- Mentions referencing these subreddits will NOT be recorded
+- Useful for meta-subreddits or spam sources
+
+**`ignored_users` table:**
+- Mentions from these users will NOT be recorded
+- Useful for bots or spam accounts
+
+### Initial Setup
+
+Default configuration is initialized automatically on first run. To manually initialize or reset:
+
+```sh
+docker cp initialize_scan_config.py pineapple-index-api-1:/app/
+docker exec pineapple-index-api-1 python /app/initialize_scan_config.py
+```
+
+This creates default configs:
+- Scan `/r/wowthissubexists` (user: WeirdPineapple, NSFW only)
+- Scan `/r/nsfw411` (all users, NSFW only)
+- Ignore mentions from: wowthissubexists, sneakpeekbot, nsfw411
+
+## Database Migrations
+
+The database schema is managed with **Alembic**. Schema changes no longer require dropping the database!
+
+### Making Schema Changes
+
+1. **Modify** `api/models.py` with your schema changes
+2. **Generate migration** inside API container:
+   ```sh
+   docker exec pineapple-index-api-1 alembic revision --autogenerate -m "your description"
+   ```
+3. **Review** the generated file in `migrations/versions/`
+4. **Deploy** - migrations run automatically when containers start:
+   ```sh
+   docker-compose up -d api
+   ```
+
+See [docs/MIGRATIONS.md](docs/MIGRATIONS.md) for detailed migration workflows.
+
 ## Development
 - Code: Python 3.11, FastAPI, SQLAlchemy, httpx.
 - Format/lint: not enforced here; keep changes minimal and clear.
 - Restart services after code edits: `docker-compose build api scanner && docker-compose up -d api scanner`.
+- Database schema changes use Alembic migrations (see above).
 
 ## Notes
 - Uses public Reddit JSON endpoints without OAuth (keep requests modest; 429 handled with backoff).
