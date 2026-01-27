@@ -1,110 +1,66 @@
-Set up a python bot using NO OAUTH to grab all posts from the Reddit user /u/WeirdPineapple weekly Friday posts of "/r/wowthissubexists Official Fap Friday Thread" posts and grab all comments containing one or more subreddit names or lists of NSFW subreddit name URLs, then save them in a SQL database, count how many times the subreddit has been commented, if the subreddit is still available or banned - and if the subreddit is still active, how many users are active in it, the date of the subreddits creation and the subreddit description.
+# Pineapple Subreddit Index
 
-This will be hosted in a docker SQL database on a website with search and filtering capabilities to see and sort the lists of the NSFW Subreddits.
+A read-only index of NSFW subreddit mentions. It watches a small set of Reddit sources (a user account and a few subreddits), parses public comments for referenced subreddit names, refreshes metadata from Reddit, and serves a searchable web UI/API. No posting, voting, or private data access.
 
-The bot must be using NO OAUTH, meaning a maximum of 10 API calls/minute, so the bot must only grab the earlier posts of /u/WeirdPineapple once, based on the post ID in its URL, such as "1q8bzx8" from the post https://www.reddit.com/r/wowthissubexists/comments/1q8bzx8.
+## Features
+- Continuous scanning of target posts/subreddits for subreddit mentions
+- Mention aggregation with timestamps and de-duplication
+- Metadata refresh (title, subscribers, description, over18/banned/not_found) with retry scheduling on rate limits
+- Search/sort/filter UI (mentions, subscribers, first-seen windows, availability, NSFW flags)
+- Read-only FastAPI backend for the frontend
+- Dockerized: scanner, API, PostgreSQL, and static Nginx frontend
 
-The  code must therefore be a little slower, but will be running within the limit on an internet faced publicly available Ubuntu Server, hosting the bot, the website and the database. The website must be secured against code injection and will be hosted behind a Cloudflare Tunnel.
+## Architecture
+- **scanner/**: Python worker that fetches posts/comments, extracts subreddit mentions, stores mentions, and refreshes subreddit metadata on a schedule.
+- **api/**: FastAPI service exposing read-only endpoints (`/subreddits`, `/stats`, etc.).
+- **nginx/html/**: Static UI consuming the API.
+- **db**: PostgreSQL (docker-compose service) holding subreddits, mentions, posts, and analytics.
 
-The code must be written easy to understand and include code comments. 
+## Data Model (summary)
+- **posts**: reddit_post_id, title, created_utc, url
+- **comments**: reddit_comment_id, post_id, created_utc, user_id
+- **subreddits**: name, title, description, subscribers, active_users, created_utc, first_mentioned, last_checked, is_banned/not_found/over18
+- **mentions**: subreddit_id, comment_id, post_id, timestamp, source_subreddit_id, user_id (dedupe), unique constraints on (subreddit_id, comment_id) and (subreddit_id, user_id)
+- **analytics**: totals plus last_scan_started/duration/new_mentions
 
+## Scanner Behavior
+- Targets: specific user posts (e.g., /u/WeirdPineapple) and configured subreddits (e.g., wowthissubexists).
+- Parses comments for `/r/name` patterns (3–21 chars, strips invalid/banned patterns).
+- Inserts mentions if not already recorded; updates first_mentioned; schedules metadata refresh.
+- Respects low-rate usage (non-OAuth public endpoints) and handles 429 Retry-After.
+- Idle loop refreshes metadata for missing fields first, then stale (>24h), ordered by mention count.
 
-The goal involves:
-- Running this in a docker container on a Ubuntu Server LTS headless.
-- Monitoring a specific Reddit user (u/WeirdPineapple) and archiving a list of all their future and past posts with the name containing "Fap Friday", making sure to only scan the specific posts for comments once, identifying the post on by the postID in the URL. They usually do not receive new subreddits after the day is over. Include in the database the unique ID, post ID, post Title, Post URL and Post timestamp.
-- Extracting comments which contain NSFW subreddit names/URLs from each of the posts, normalizing the names to lowercase without slashes, ignore invalid subreddit names containing special characters or being shorter than 3 characters or longer than 21 characters, ignore known non‑subreddit patterns (such as "r/all", "r/random")
-- Storing every identified subreddit url in a SQL database, including: unique ID, subreddit ID, Post Timestamp, Comment ID
-- Routinely analysing the database table containing the subreddits and making a database table containing: unique ID, subreddit URL, subreddit Name, count of occurrences, subreddit creation date, subreddit first mentioned timestamp, status (banned/private/publicly available), active users at the moment of the scan, subreddit description, marked as over 18 NSFW status - and check routinely if the subreddits are still available, maybe on a schedule once a week, still keeping within the 10 API calls/minute.
-- Hosting a Nginx/Apache website in a another Docker container behind a cloudflare tunnel, secured from injection in the database which will be read-only from the webserver with filtering and searching cababilities.
-- Running the whole scanner continuously keeping within the 10 API calls/minute limit but also prepare the project to be able to set up OAUTH if this becomes available later.
+## Running Locally
+Prereqs: Docker and docker-compose.
 
-The weekly pipeline will follow this sequence:
-1. Identify the correct Friday post
-2. Fetch all comments
-3. Extract subreddit names
-4. Normalize and deduplicate
-5. Fetch subreddit metadata
-6. Store everything in SQL
-7. Expose a read‑only API for your website
+```sh
+docker-compose build
+docker-compose up -d
+```
+Services: `api`, `scanner`, `db`, `nginx` (static UI).
 
+### Environment
+Configure via `.env` (see defaults in `scanner/main.py` and `api/app.py`):
+- `DATABASE_URL` (Postgres DSN)
+- `REDDIT_USER` (source user, default WeirdPineapple)
+- `SUBREDDITS_TO_SCAN` (comma list; default includes wowthissubexists)
+- `API_RATE_DELAY`, `HTTP_REQUEST_TIMEOUT`, `SUBABOUT_CONCURRENCY`, etc.
+- Frontend served by Nginx; adjust compose if you change ports.
 
+## API (brief)
+- `GET /subreddits` – paginated, filters (mentions/subscribers ranges, availability, NSFW), sorting.
+- `GET /stats` – totals plus last_scan_started/duration/new_mentions.
+- Additional params in code (`api/app.py`). All endpoints are read-only.
 
-A clean relational schema:
+## Frontend
+- Static UI under `nginx/html/` with search, sort, filters (mentions, subscribers, first-mentioned presets, availability, NSFW/SFW), pagination, and column sorting.
+- Links open to Reddit (configurable listing target).
 
-posts
-column	type
-id	PK
-reddit_post_id	text
-title	text
-created_utc	int
-url	text
-comments
-column	type
-id	PK
-reddit_comment_id	text
-post_id	FK
-body	text
-created_utc	int
-subreddits
-column	type
-id	PK
-name	text unique
-created_utc	int
-subscribers	int
-active_users	int
-description	text
-is_banned	boolean
-last_checked	timestamp
-mentions
-column	type
-id	PK
-subreddit_id	FK
-comment_id	FK
-post_id	FK
-timestamp	int
+## Development
+- Code: Python 3.11, FastAPI, SQLAlchemy, httpx.
+- Format/lint: not enforced here; keep changes minimal and clear.
+- Restart services after code edits: `docker-compose build api scanner && docker-compose up -d api scanner`.
 
-This gives you:
-⦁	Frequency counts
-⦁	Historical trends
-⦁	Ability to detect banned/active changes
-
-
-
-Backend API for Website
-Expose a read‑only API (FastAPI):
-
-Endpoints:
-GET /subreddits
-Pagination
-Sort by:
-mentions
-subscribers
-active_users
-created_utc
-
-GET /subreddits/{name}
-Full metadata
-Mention history
-Status (active/banned)
-
-GET /mentions
-Filter by:
-date range
-subreddit
-post
-
-GET /stats/top
-Most mentioned subreddits
-Fastest‑growing
-Most banned
-
-
-
-
-What I need:
-
-⦁	The full database schema with indexes
-⦁	The backend API routes in detail
-⦁	A caching strategy for subreddit metadata
-⦁	A full sequence diagram
-⦁	A Dockerized architecture
+## Notes
+- Uses public Reddit JSON endpoints without OAuth (keep requests modest; 429 handled with backoff).
+- Designed as read-only indexing; no posting or account actions.
