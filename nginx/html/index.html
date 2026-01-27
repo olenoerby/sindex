@@ -147,7 +147,7 @@
               <!-- Content Type Filters -->
               <div style="font-weight:600;margin-bottom:6px;margin-top:8px;font-size:0.95rem;color:var(--muted)">Content Type</div>
               <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><input id="showNSFW" type="checkbox" checked/> Show NSFW</label>
-              <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><input id="showNonNSFW" type="checkbox"/> Show SFW (non-NSFW)</label>
+              <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><input id="showNonNSFW" type="checkbox" checked/> Show SFW (non-NSFW)</label>
               
               <!-- Discovery Date Filters -->
               <div style="font-weight:600;margin-bottom:6px;margin-top:8px;font-size:0.95rem;color:var(--muted)">Discovery Date</div>
@@ -877,30 +877,12 @@
       filterPop.addEventListener('click', (ev)=> ev.stopPropagation());
       const closePop = document.getElementById('closeFilterPop');
       if(closePop) closePop.addEventListener('click', ()=> filterPop.style.display = 'none');
-      // `Clear` button removed from UI; use Reset or manually toggle filters.
       // wire show toggles and the popout Show/Hide-all button
       const showAvailableEl = document.getElementById('showAvailable');
       const showBannedEl = document.getElementById('showBanned');
       const showNSFWEl = document.getElementById('showNSFW');
       const showNonNSFWEl = document.getElementById('showNonNSFW');
-      function updateContentFilterControls(){
-        try{
-          const sB = !!(showBannedEl && showBannedEl.checked);
-          const sA = !!(showAvailableEl && showAvailableEl.checked);
-          // If only "Show unavailable" is selected (available is off), enable both content checkboxes
-          const onlyUnavailable = sB && !sA;
-          // When both availability options are selected (or available-only), disable content toggles
-          const disableContent = sB && sA;
-          if(showNSFWEl){
-            showNSFWEl.disabled = disableContent;
-            if(onlyUnavailable){ showNSFWEl.checked = true; showNSFWEl.disabled = true; }
-          }
-          if(showNonNSFWEl){
-            showNonNSFWEl.disabled = disableContent;
-            if(onlyUnavailable){ showNonNSFWEl.checked = true; showNonNSFWEl.disabled = true; }
-          }
-        }catch(e){/* ignore */}
-      }
+      
       const showAllBtn = document.getElementById('showAll');
       function updateShowAllLabel(){
         if(!showAllBtn) return;
@@ -912,25 +894,12 @@
       }
       if(showAvailableEl) showAvailableEl.addEventListener('change', (e)=>{
         updateShowAllLabel();
-        try{
-          // If neither NSFW toggle is enabled, enable Show NSFW when user enables an availability filter
-          if(showNSFWEl && showNonNSFWEl && !showNSFWEl.checked && !showNonNSFWEl.checked){
-            showNSFWEl.checked = true;
-          }
-          savePrefs();
-        }catch(err){}
+        try{ savePrefs(); }catch(err){}
         loadPage(1);
       });
       if(showBannedEl) showBannedEl.addEventListener('change', (e)=>{
         updateShowAllLabel();
-        try{
-          if(showNSFWEl && showNonNSFWEl && !showNSFWEl.checked && !showNonNSFWEl.checked){
-            showNSFWEl.checked = true;
-          }
-          // disable/enable content filter controls when Show unavailable toggles
-          updateContentFilterControls();
-          savePrefs();
-        }catch(err){}
+        try{ savePrefs(); }catch(err){}
         loadPage(1);
       });
       if(showNSFWEl) showNSFWEl.addEventListener('change', (e)=>{ updateShowAllLabel(); try{ savePrefs(); }catch(err){} loadPage(1); });

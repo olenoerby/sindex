@@ -182,6 +182,10 @@ def list_subreddits(
     per_page = min(max_per, max(1, int(per_page)))
     page = max(1, int(page))
     offset = (page - 1) * per_page
+    
+    # Debug logging for filter parameters
+    api_logger.info(f"Filter params: show_available={show_available}, show_banned={show_banned}, show_nsfw={show_nsfw}, show_non_nsfw={show_non_nsfw}")
+    
     # validate sort and sort_dir here to avoid FastAPI raising a 422
     allowed_sorts = {'mentions','subscribers','active_users','created_utc','first_mentioned','name','display_name_prefixed','title','description','random'}
     if not sort or sort not in allowed_sorts:
@@ -190,7 +194,7 @@ def list_subreddits(
     if not sort_dir or sort_dir not in allowed_dirs:
         sort_dir = 'desc'
     with Session(engine) as session:
-        # total count for pagination metadata: prefer analytics table if present
+        # Total count reflects all subreddits (including those with 0 mentions)
         try:
             analytics = session.query(models.Analytics).first()
             if analytics and getattr(analytics, 'total_subreddits', None) is not None:
@@ -220,40 +224,67 @@ def list_subreddits(
         if max_subscribers is not None:
             subq = subq.filter((models.Subreddit.subscribers == None) | (models.Subreddit.subscribers <= int(max_subscribers)))
 
-        # NSFW filters
-        # If client requests only NSFW: include rows where over18 is explicitly True OR NULL
-        # (treat untagged subreddits as NSFW by default).
-        if (show_nsfw is True) and (show_non_nsfw is not True):
-            subq = subq.filter((models.Subreddit.over18 == True) | (models.Subreddit.over18 == None))
-        # If client requests only non-NSFW: include only rows where over18 is explicitly False
-        if (show_non_nsfw is True) and (show_nsfw is not True):
-            subq = subq.filter(models.Subreddit.over18 == False)
+        # NSFW filters - work as AND conditions
+        # show_nsfw=True means "include NSFW", =False means "exclude NSFW"
+        # show_non_nsfw=True means "include SFW", =False means "exclude SFW"
+        # Build OR conditions for what to include, then filter
+        nsfw_conditions = []
+        if show_nsfw is True:
+            # Include NSFW and unknown (NULL treated as potentially NSFW)
+            nsfw_conditions.append((models.Subreddit.over18 == True) | (models.Subreddit.over18 == None))
+        if show_non_nsfw is True:
+            # Include non-NSFW
+            nsfw_conditions.append(models.Subreddit.over18 == False)
+        
+        if nsfw_conditions:
+            # At least one is enabled - combine with OR
+            from sqlalchemy import or_
+            if len(nsfw_conditions) == 1:
+                subq = subq.filter(nsfw_conditions[0])
+            else:
+                subq = subq.filter(or_(*nsfw_conditions))
+        else:
+            # Both disabled - return empty result
+            subq = subq.filter(models.Subreddit.id == None)
 
-        # Availability filters
-        # By default exclude subreddits that are 'not_found' (they don't resolve on Reddit)
-        try:
-            subq = subq.filter(models.Subreddit.not_found != True)
-        except Exception:
-            # Fallback: keep existing behavior if unary comparison unsupported
-            pass
-
-        # Show available: explicitly include rows where not_found is False or NULL
-        if (show_available is True) and (show_banned is not True):
+        # Availability filters - work as AND conditions
+        # show_available=True means "include available", =False means "exclude available"
+        # show_banned=True means "include banned", =False means "exclude banned"
+        
+        # Build OR conditions for what to include
+        avail_conditions = []
+        if show_available is True:
+            # Include available subreddits (not banned and not not_found)
             try:
-                subq = subq.filter((models.Subreddit.not_found == False) | (models.Subreddit.not_found == None))
+                avail_conditions.append(
+                    ((models.Subreddit.is_banned == False) | (models.Subreddit.is_banned == None)) &
+                    ((models.Subreddit.not_found == False) | (models.Subreddit.not_found == None))
+                )
             except Exception:
-                subq = subq.filter(models.Subreddit.not_found != True)
-
-        # Show banned: when requested, include only rows explicitly marked as banned
-        # (do not include not_found rows here — those are non-resolving and should remain hidden)
-        if (show_banned is True) and (show_available is not True):
+                avail_conditions.append(
+                    (models.Subreddit.is_banned != True) & (models.Subreddit.not_found != True)
+                )
+        if show_banned is True:
+            # Include banned/unavailable subreddits (is_banned=True OR not_found=True)
             try:
-                subq = subq.filter(models.Subreddit.is_banned == True)
+                avail_conditions.append(
+                    (models.Subreddit.is_banned == True) | (models.Subreddit.not_found == True)
+                )
             except Exception:
-                subq = subq.filter(models.Subreddit.is_banned == True)
+                avail_conditions.append(models.Subreddit.is_banned == True)
+        
+        if avail_conditions:
+            # At least one is enabled - combine with OR
+            from sqlalchemy import or_
+            if len(avail_conditions) == 1:
+                subq = subq.filter(avail_conditions[0])
+            else:
+                subq = subq.filter(or_(*avail_conditions))
+        else:
+            # Both disabled - return empty result
+            subq = subq.filter(models.Subreddit.id == None)
         # Apply mentions filters via HAVING (since mentions is an aggregate)
-        # Always exclude subreddits with 0 mentions (minimum is 1)
-        subq = subq.having(func.count(models.Mention.id) >= 1)
+        # Do not force a minimum mention count; include subreddits with 0 mentions
         if min_mentions is not None:
             subq = subq.having(func.count(models.Mention.id) >= int(min_mentions))
         if max_mentions is not None:
