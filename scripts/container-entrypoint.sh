@@ -12,6 +12,16 @@ if [ "$SERVICE_NAME" = "api" ]; then
         echo "$(ts) [${SERVICE_NAME}] migration failed"
         exit 1
     }
+  # Optionally initialize scan configuration for new databases.
+  # Controlled by INIT_SCAN_CONFIG (default: true). This is idempotent.
+  INIT_SCAN_CONFIG=${INIT_SCAN_CONFIG:-true}
+  if [ "${INIT_SCAN_CONFIG}" = "true" ]; then
+    echo "$(ts) [${SERVICE_NAME}] initializing scan configuration (if needed)..."
+    python /app/initialize_scan_config.py || {
+      echo "$(ts) [${SERVICE_NAME}] initialize_scan_config.py failed"
+      exit 1
+    }
+  fi
 fi
 
 # Start the main process
