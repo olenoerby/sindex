@@ -10,9 +10,15 @@ import httpx
 from sqlalchemy import create_engine, text, func
 from sqlalchemy.orm import Session
 import sys
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'api'))
+# Ensure the project root is on sys.path so `import api` works when running
+# inside the scanner container. Previously we appended the `api` folder
+# itself which prevented importing `api.*` packages.
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import models
+from api.utils import parse_retry_after_seconds
 
 # Load environment variables from .env at repo root so values like
 # `POST_COMMENT_LOOKBACK_DAYS` can be set without editing `main.py`.
@@ -47,6 +53,16 @@ except Exception:
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
 SUBABOUT_MAX_RETRIES = int(os.getenv('SUBABOUT_MAX_RETRIES', '3'))
 HTTP_REQUEST_TIMEOUT = float(os.getenv('HTTP_REQUEST_TIMEOUT', '15'))
+try:
+    SUBABOUT_CONCURRENCY = int(os.getenv('SUBABOUT_CONCURRENCY', '1'))
+except Exception:
+    SUBABOUT_CONCURRENCY = 1
+# Semaphore to limit concurrent subreddit-about requests (default 1 to serialize)
+SUBABOUT_SEMAPHORE = threading.BoundedSemaphore(SUBABOUT_CONCURRENCY)
+
+# Global lock and timestamp for serializing and spacing subreddit about requests
+SUBREDDIT_RATE_LOCK = threading.Lock()
+LAST_SUBREDDIT_REQUEST = 0.0
 # NOTE: metadata freshness is not cached by days; metadata is refreshed
 # immediately after discovery during each scan.
 # Optional testing controls:
@@ -79,9 +95,42 @@ IGNORE_SUBREDDITS = set(
     normalize(s) for s in os.getenv('IGNORE_SUBREDDITS', 'wowthissubexists,sneakpeekbot').split(',') if s.strip()
 )
 
+# Optional: explicit list of subreddits to scan. Comma-separated, normalized.
+SUBREDDITS_TO_SCAN = [s for s in (os.getenv('SUBREDDITS_TO_SCAN') or '').split(',') if s.strip()]
+SUBREDDITS_TO_SCAN = [normalize(s) for s in SUBREDDITS_TO_SCAN]
+
 
 def ensure_tables():
-    models.Base.metadata.create_all(engine)
+    # Wait for the database to be ready before attempting DDL.
+    max_retries = int(os.getenv('DB_STARTUP_MAX_RETRIES', '30'))
+    delay = float(os.getenv('DB_STARTUP_RETRY_DELAY', '1'))
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            # Try a lightweight connection first
+            with engine.connect() as conn:
+                conn.execute(text('SELECT 1'))
+            break
+        except Exception:
+            if attempt >= max_retries:
+                logger.exception('Database not ready after retries; proceeding and will fail on DDL')
+                break
+            sleep_for = min(30, delay * (2 ** (attempt - 1)))
+            logger.info(f'Database not ready yet (attempt {attempt}/{max_retries}), retrying in {sleep_for}s')
+            time.sleep(sleep_for)
+
+    try:
+        models.Base.metadata.create_all(engine)
+    except Exception:
+        # If DDL fails here, log and continue; caller will handle runtime errors.
+        logger.exception('Failed to create tables during ensure_tables')
+    # Apply idempotent schema migrations for minor schema drift so manual psql
+    # is not required on prod deployments where direct DB access is difficult.
+    try:
+        apply_schema_migrations()
+    except Exception:
+        logger.exception('apply_schema_migrations failed')
     # Ensure a DB-level uniqueness constraint (index) exists for mentions
     # so repeated inserts across restarts cannot create duplicates.
     try:
@@ -93,6 +142,139 @@ def ensure_tables():
     except Exception:
         # Non-fatal: if DB user lacks privileges or index already exists differently, continue.
         logger.exception("Could not ensure unique index on mentions (continuing)")
+
+
+def wait_for_db_startup(initial_delay: float = 10.0, max_retries: int = 5, retry_delay: float = 5.0):
+    """Pause briefly, then verify DB connectivity. Exit process if DB unreachable.
+
+    - initial_delay: seconds to wait immediately after container start
+    - max_retries: number of connection attempts before giving up
+    - retry_delay: seconds between retries
+    """
+    try:
+        initial = float(os.getenv('DB_STARTUP_INITIAL_DELAY', str(initial_delay)))
+    except Exception:
+        initial = initial_delay
+    try:
+        retries = int(os.getenv('DB_STARTUP_MAX_CONN_RETRIES', str(max_retries)))
+    except Exception:
+        retries = max_retries
+    try:
+        rdelay = float(os.getenv('DB_STARTUP_CONN_RETRY_DELAY', str(retry_delay)))
+    except Exception:
+        rdelay = retry_delay
+
+    logger.info(f'Waiting {initial}s before testing DB connectivity')
+    time.sleep(initial)
+
+    attempt = 0
+    while attempt < retries:
+        attempt += 1
+        try:
+            with engine.connect() as conn:
+                conn.execute(text('SELECT 1'))
+            logger.info('Database connectivity verified')
+            return True
+        except Exception as e:
+            logger.warning(f'DB connection attempt {attempt}/{retries} failed: {e}')
+            if attempt >= retries:
+                logger.error('DB not reachable after startup retries; exiting to stop container')
+                # Exit with non-zero so container orchestrator marks the container as failed
+                sys.exit(1)
+            time.sleep(rdelay)
+
+
+
+def startup_metadata_prefetch():
+    """Refresh missing subreddit metadata at scanner startup.
+
+    This fetch prioritizes the most-mentioned subreddits first (descending
+    `mentions`) so high-value communities are refreshed before lesser-known
+    ones. It also skips rows scheduled for future retries.
+    """
+    try:
+        limit = int(os.getenv('METADATA_PREFETCH_LIMIT', '200'))
+    except Exception:
+        limit = 200
+    try:
+        concurrency = int(os.getenv('METADATA_CONCURRENCY', '2'))
+    except Exception:
+        concurrency = 2
+
+    logger.info(f"Startup metadata prefetch: limit={limit}, concurrency={concurrency}")
+    try:
+        with Session(engine) as session:
+            from sqlalchemy import or_
+            now = datetime.utcnow()
+            missing_q = session.query(models.Subreddit).filter(
+                or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
+                or_(models.Subreddit.title == None, models.Subreddit.title == ''),
+                or_(models.Subreddit.description == None, models.Subreddit.description == ''),
+                models.Subreddit.subscribers == None,
+            )
+            # Avoid rows scheduled for a future retry
+            try:
+                missing_q = missing_q.filter(or_(models.Subreddit.next_retry_at == None, models.Subreddit.next_retry_at <= now))
+            except Exception:
+                pass
+
+            # Prioritize by mentions (most-mentioned first), then by retry_priority
+            # so previously-rate-limited subreddits are retried earlier within the
+            # same mentions bucket. Finally, older last_checked values come first.
+            try:
+                missing_q = missing_q.order_by(models.Subreddit.mentions.desc(), models.Subreddit.retry_priority.desc(), models.Subreddit.last_checked.asc().nullsfirst())
+            except Exception:
+                try:
+                    missing_q = missing_q.order_by(models.Subreddit.mentions.desc(), models.Subreddit.retry_priority.desc(), models.Subreddit.last_checked.asc())
+                except Exception:
+                    pass
+
+            try:
+                candidates = missing_q.limit(limit).all()
+            except Exception:
+                session.rollback()
+                candidates = []
+
+        if not candidates:
+            logger.info('No missing-metadata subreddits found at startup')
+            return
+
+        def _refresh_worker(sub_id):
+            try:
+                with Session(engine) as s:
+                    sub = s.get(models.Subreddit, sub_id)
+                    if not sub:
+                        return
+                    try:
+                        if getattr(sub, 'is_banned', False):
+                            logger.info(f"Startup: skipping banned /r/{sub.name}")
+                            return
+                    except Exception:
+                        pass
+                    # Only refresh if needed (older than 24 hours or missing key fields)
+                    try:
+                        logger.info(f"Startup: considering metadata refresh for /r/{sub.name}")
+                        if should_refresh_sub(sub):
+                            logger.info(f"Startup: refreshing metadata for /r/{sub.name}")
+                            try:
+                                with SUBABOUT_SEMAPHORE:
+                                    update_subreddit_metadata(s, sub)
+                            except Exception:
+                                s.rollback()
+                        else:
+                            logger.info(f"Startup: skipping metadata refresh for /r/{sub.name} (recent)")
+                    except Exception:
+                        s.rollback()
+            except Exception:
+                logger.exception('Exception in startup metadata worker')
+
+        ids = [s.id for s in candidates if getattr(s, 'id', None) is not None]
+        if ids:
+            with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
+                list(ex.map(_refresh_worker, ids))
+        logger.info('Startup metadata prefetch complete')
+    except Exception:
+        logger.exception('Error during startup metadata prefetch')
 
 
 def get_or_create_analytics(session: Session):
@@ -153,14 +335,72 @@ def increment_analytics(session: Session, posts: int = 0, comments: int = 0, sub
             session.rollback()
 
 
+def record_scan_completion(session: Session, scan_start_time: float, new_mentions: int):
+    """Record scan completion metrics in analytics table."""
+    try:
+        a = get_or_create_analytics(session)
+        if a:
+            scan_duration = int(time.time() - scan_start_time)
+            a.last_scan_duration = scan_duration
+            a.last_scan_new_mentions = new_mentions
+            session.add(a)
+            session.commit()
+            logger.info(f"Scan completed: duration={scan_duration}s, new_mentions={new_mentions}")
+    except Exception:
+        logger.exception('Failed to record scan completion')
+        session.rollback()
+
+
 def fetch_user_posts(after: str = None):
     # Calls Reddit public endpoint for user submissions
     url = f"https://www.reddit.com/user/{REDDIT_USER}/submitted.json?limit=100"
     if after:
         url += f"&after={after}"
     headers = {"User-Agent": "PineappleIndexBot/0.1 (by /u/yourbot)"}
-    r = httpx.get(url, headers=headers)
+    timeout = HTTP_REQUEST_TIMEOUT
+    try:
+        r = httpx.get(url, headers=headers, timeout=timeout)
+    except httpx.ReadTimeout as e:
+        logger.warning(f"Read timeout fetching user posts (after={after}): {e}")
+        raise
+    except httpx.RequestError as e:
+        logger.warning(f"Network error fetching user posts (after={after}): {e}")
+        raise
     time.sleep(API_RATE_DELAY)
+    r.raise_for_status()
+    return r.json()
+
+
+def fetch_subreddit_posts(subname: str, after: str = None):
+    """Fetch recent posts for a subreddit (`/r/{subname}/new.json`). Returns parsed JSON."""
+    url = f"https://www.reddit.com/r/{subname}/new.json?limit=100"
+    if after:
+        url += f"&after={after}"
+    headers = {"User-Agent": "PineappleIndexBot/0.1 (by /u/yourbot)"}
+    timeout = HTTP_REQUEST_TIMEOUT
+    try:
+        r = httpx.get(url, headers=headers, timeout=timeout)
+    except httpx.ReadTimeout as e:
+        logger.warning(f"Read timeout fetching /r/{subname} posts (after={after}): {e}")
+        raise
+    except httpx.RequestError as e:
+        logger.warning(f"Network error fetching /r/{subname} posts (after={after}): {e}")
+        raise
+    
+    # Log response status and headers for debugging
+    logger.debug(f"fetch_subreddit_posts /r/{subname}: status_code={r.status_code}, headers={dict(r.headers)}")
+    
+    try:
+        time.sleep(API_RATE_DELAY)
+    except Exception:
+        pass
+    
+    # Check for error status codes before raising
+    if r.status_code == 429:
+        retry_after = r.headers.get('Retry-After', 'unknown')
+        logger.error(f"Rate limited fetching /r/{subname}: 429 Too Many Requests, Retry-After={retry_after}")
+        raise Exception(f"HTTP 429 Rate Limited on /r/{subname}; Retry-After={retry_after}")
+    
     r.raise_for_status()
     return r.json()
 
@@ -196,10 +436,11 @@ def fetch_post_comments(post_id: str, max_retries: int = 5):
     headers = {"User-Agent": "PineappleIndexBot/0.1 (by /u/yourbot)"}
     attempt = 0
     base_sleep = 5
+    timeout = HTTP_REQUEST_TIMEOUT
     while True:
         attempt += 1
         try:
-            r = httpx.get(url, headers=headers)
+            r = httpx.get(url, headers=headers, timeout=timeout)
         except Exception as e:
             # Network-level errors: if we have retries left, back off and retry
             if attempt <= max_retries:
@@ -221,10 +462,12 @@ def fetch_post_comments(post_id: str, max_retries: int = 5):
             ra = _parse_retry_after(r.headers.get('Retry-After'))
             if ra is None:
                 # exponential backoff if header absent
-                sleep_for = min(60, base_sleep * (2 ** (attempt - 1)))
+                backoff = min(60, base_sleep * (2 ** (attempt - 1)))
             else:
-                sleep_for = max(1, ra)
-            logger.warning(f"Received 429 for post {post_id}; retry {attempt}/{max_retries} after {sleep_for}s")
+                backoff = max(1, ra)
+            # Ensure we respect the global API rate delay as a minimum when retrying
+            sleep_for = max(API_RATE_DELAY, backoff)
+            logger.warning(f"Received 429 for post {post_id}; retry {attempt}/{max_retries} after {sleep_for}s (backoff={backoff})")
             if attempt <= max_retries:
                 time.sleep(sleep_for)
                 continue
@@ -248,8 +491,29 @@ def fetch_sub_about(name: str):
     base_sleep = 2
     while True:
         attempt += 1
+        # Ensure only one thread calls Reddit about endpoint at a time and
+        # respect the global API_RATE_DELAY spacing between calls.
         try:
-            r = httpx.get(url, headers=headers, timeout=timeout)
+            global LAST_SUBREDDIT_REQUEST
+            # Acquire short-lived lock to enforce spacing and serialization
+            SUBREDDIT_RATE_LOCK.acquire()
+            try:
+                now_ts = time.time()
+                elapsed = now_ts - (LAST_SUBREDDIT_REQUEST or 0.0)
+                if elapsed < API_RATE_DELAY:
+                    sleep_for = API_RATE_DELAY - elapsed
+                    try:
+                        time.sleep(sleep_for)
+                    except Exception:
+                        pass
+                # perform the request while holding lock to prevent concurrent calls
+                r = httpx.get(url, headers=headers, timeout=timeout)
+                LAST_SUBREDDIT_REQUEST = time.time()
+            finally:
+                try:
+                    SUBREDDIT_RATE_LOCK.release()
+                except Exception:
+                    pass
         except httpx.ReadTimeout as e:
             if attempt <= max_retries:
                 sleep_for = min(60, base_sleep * (2 ** (attempt - 1)))
@@ -275,19 +539,95 @@ def fetch_sub_about(name: str):
 
         # Handle 429 Too Many Requests specially
         if r.status_code == 429:
-            ra = _parse_retry_after(r.headers.get('Retry-After'))
+            ra = parse_retry_after_seconds(r.headers.get('Retry-After'))
             if ra is None:
-                sleep_for = min(60, base_sleep * (2 ** (attempt - 1)))
+                backoff = min(60, base_sleep * (2 ** (attempt - 1)))
             else:
-                sleep_for = max(1, ra)
-            logger.warning(f"Received 429 for /r/{name}; retry {attempt}/{max_retries} after {sleep_for}s")
+                backoff = max(1, ra)
+            # Respect global API_RATE_DELAY as a minimum pause between retries
+            sleep_for = max(API_RATE_DELAY, backoff)
+            logger.warning(f"Received 429 for /r/{name}; retry {attempt}/{max_retries} after {sleep_for}s (backoff={backoff})")
             if attempt <= max_retries:
                 time.sleep(sleep_for)
                 continue
-            # exhausted retries; raise to let caller handle
-            r.raise_for_status()
+            # exhausted retries; return response so caller can record Retry-After and schedule next attempt
+            return r
 
         return r
+
+
+def apply_schema_migrations():
+    """Run small, idempotent schema migrations required by runtime code.
+
+    Currently ensures `mentions.source_subreddit_id` exists and an index
+    is present so the scanner can record where mentions were observed.
+    Also adds scan tracking columns to the analytics table.
+    """
+    try:
+        with engine.begin() as conn:
+            # Add column if not present (Postgres supports IF NOT EXISTS for ADD COLUMN)
+            try:
+                conn.execute(text("ALTER TABLE mentions ADD COLUMN IF NOT EXISTS source_subreddit_id integer NULL"))
+            except Exception:
+                # Older Postgres versions or permission errors may raise; ignore
+                pass
+            # Create index to speed up lookups
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mentions_source_subreddit_id ON mentions(source_subreddit_id)"))
+            except Exception:
+                pass
+            # Add scan tracking columns to analytics table
+            try:
+                conn.execute(text("ALTER TABLE analytics ADD COLUMN IF NOT EXISTS last_scan_started timestamp NULL"))
+                conn.execute(text("ALTER TABLE analytics ADD COLUMN IF NOT EXISTS last_scan_duration integer NULL"))
+                conn.execute(text("ALTER TABLE analytics ADD COLUMN IF NOT EXISTS last_scan_new_mentions integer NULL"))
+            except Exception:
+                pass
+    except Exception:
+        logger.exception('apply_schema_migrations failure')
+
+
+def should_refresh_sub(sub: models.Subreddit, now: datetime = None) -> bool:
+    """Return True if we should refresh metadata for `sub`.
+
+    Rules:
+    - If any key fields are missing (display_name, title, description, subscribers), return True.
+    - Otherwise, only refresh if `last_checked` is older than 24 hours.
+    """
+    try:
+        if now is None:
+            now = datetime.utcnow()
+        # If a future retry is scheduled (from a previous 429), skip until then
+        try:
+            nra = getattr(sub, 'next_retry_at', None)
+            if nra:
+                if now is None:
+                    now = datetime.utcnow()
+                if nra and nra > now:
+                    return False
+        except Exception:
+            pass
+
+        # If missing essential metadata, refresh regardless of last_checked
+        missing = (
+            not getattr(sub, 'display_name', None) or
+            not getattr(sub, 'title', None) or
+            not getattr(sub, 'description', None) or
+            (getattr(sub, 'subscribers', None) is None)
+        )
+        if missing:
+            return True
+        last = getattr(sub, 'last_checked', None)
+        if not last:
+            return True
+        try:
+            age = (now - last).total_seconds()
+            # 24 hours = 86400 seconds
+            return age >= 86400
+        except Exception:
+            return True
+    except Exception:
+        return True
 
 
 def walk_comments(data, found):
@@ -324,7 +664,7 @@ def extract_subreddits_from_text(text: str):
     return names
 
 
-def process_post(post_item, session: Session):
+def process_post(post_item, session: Session, source_subreddit_name: str = None, require_fap_friday: bool = True):
     """Process a single reddit post item.
 
     Returns a tuple (processed: bool, discovered_subreddits: set).
@@ -337,9 +677,23 @@ def process_post(post_item, session: Session):
     title = data.get('title')
     created_utc = int(data.get('created_utc') or 0)
     url = data.get('permalink')
-    # Only consider Fap Friday posts by title
-    if 'fap friday' not in (title or '').lower():
-        return (False, set())
+    # If caller requires Fap Friday posts, enforce that; otherwise process any post
+    if require_fap_friday:
+        if 'fap friday' not in (title or '').lower():
+            return (False, set())
+
+    # Resolve or create a Subreddit row for the source subreddit (where this post was found)
+    source_sub = None
+    try:
+        if source_subreddit_name:
+            sname = normalize(source_subreddit_name)
+            source_sub = session.query(models.Subreddit).filter_by(name=sname).first()
+            if not source_sub:
+                source_sub = models.Subreddit(name=sname)
+                session.add(source_sub)
+                session.commit()
+    except Exception:
+        session.rollback()
     # If post already exists, decide whether to re-scan comments.
     # We re-scan posts that are within the past ~6 months to catch edited
     # comments which may have added new subreddit mentions. Older posts are
@@ -378,7 +732,8 @@ def process_post(post_item, session: Session):
             date_str = datetime.utcfromtimestamp(created_utc).strftime('%Y-%m-%d') if created_utc else 'unknown-date'
         except Exception:
             date_str = 'unknown-date'
-        logger.info(f"Saved post {reddit_id} ({date_str}) (no comments found)")
+        source_sub = f" from /r/{source_subreddit_name}" if source_subreddit_name else ""
+        logger.info(f"Saved post {reddit_id} ({date_str}) (no comments found){source_sub}")
         try:
             increment_analytics(session, posts=1)
         except Exception:
@@ -418,15 +773,18 @@ def process_post(post_item, session: Session):
             increment_analytics(session, posts=1)
         except Exception:
             logger.debug('Failed to increment analytics for post')
-        logger.info(f"Saved post {reddit_id} ({format_ts(created_utc)}) - processing {len(missing)} new comments")
+        source_sub = f" from /r/{source_subreddit_name}" if source_subreddit_name else ""
+        logger.info(f"Saved post {reddit_id} ({format_ts(created_utc)}) - processing {len(missing)} new comments{source_sub}")
     else:
         post = existing
-        logger.info(f"Rescanning post {reddit_id} ({format_ts(post.created_utc)}) - {len(missing)} new, {len(edited)} edited comments")
+        source_sub = f" from /r/{source_subreddit_name}" if source_subreddit_name else ""
+        logger.info(f"Rescanning post {reddit_id} ({format_ts(post.created_utc)}) - {len(missing)} new, {len(edited)} edited comments{source_sub}")
     try:
         date_str = datetime.utcfromtimestamp(created_utc).strftime('%Y-%m-%d') if created_utc else 'unknown-date'
     except Exception:
         date_str = 'unknown-date'
-    logger.info(f"Saved post {reddit_id} ({date_str}) - processing {len(missing)} new comments")
+    source_sub = f" from /r/{source_subreddit_name}" if source_subreddit_name else ""
+    logger.info(f"Saved post {reddit_id} ({date_str}) - processing {len(missing)} new comments{source_sub}")
     try:
         increment_analytics(session, posts=1)
     except Exception:
@@ -519,7 +877,7 @@ def process_post(post_item, session: Session):
                     else:
                         exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
                         if not exists:
-                            mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id)
+                            mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id, source_subreddit_id=(source_sub.id if source_sub else None))
                             session.add(mention)
                             session.commit()
                             try:
@@ -592,7 +950,7 @@ def process_post(post_item, session: Session):
                     if not existing_by_user:
                         exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
                         if not exists:
-                            mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id)
+                            mention = models.Mention(subreddit_id=sub.id, comment_id=cm.id, post_id=post.id, timestamp=int(c.get('created_utc') or 0), user_id=cm.user_id, source_subreddit_id=(source_sub.id if source_sub else None))
                             session.add(mention)
                             session.commit()
                             try:
@@ -742,6 +1100,26 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                 logger.info(f"/r/{sub.name} returned {r.status_code}; is_banned={sub.is_banned}, not_found={sub.not_found}")
             except Exception:
                 pass
+        elif r.status_code == 429:
+            # Rate limited: schedule next retry based on Retry-After header
+            try:
+                ra = parse_retry_after_seconds(r.headers.get('Retry-After'))
+            except Exception:
+                ra = None
+            try:
+                if ra and ra > 0:
+                    sub.next_retry_at = datetime.utcnow() + timedelta(seconds=int(ra))
+                else:
+                    # fallback: schedule a conservative retry window (e.g., 10 * API_RATE_DELAY)
+                    sub.next_retry_at = datetime.utcnow() + timedelta(seconds=max(30, int(API_RATE_DELAY * 10)))
+                # Increase retry_priority so top-listed subreddits are retried earlier
+                try:
+                    sub.retry_priority = int(sub.retry_priority or 0) + 1
+                except Exception:
+                    sub.retry_priority = 1
+                logger.warning(f"/r/{sub.name} rate-limited; scheduling next_retry_at={sub.next_retry_at} (Retry-After={ra})")
+            except Exception:
+                logger.exception(f"Failed to schedule retry for /r/{sub.name} after 429")
         else:
             logger.warning(f"Unexpected status {r.status_code} for /r/{sub.name}")
             try:
@@ -772,36 +1150,128 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
 
 
 def main_loop():
+    wait_for_db_startup()
     ensure_tables()
+    # Skip startup metadata prefetch; begin scanning immediately
     logger.info("Starting scanner main loop")
     after = None
     processed_count = 0
     while True:
+        scan_start_time = time.time()
+        mentions_before = 0
         try:
-            data = fetch_user_posts(after)
-            children = data.get('data', {}).get('children', [])
-            if not children:
-                logger.info('No posts found, sleeping for 10 minutes')
-                time.sleep(600)
-                continue
-            with Session(engine) as session:
+            # If SUBREDDITS_TO_SCAN configured, iterate each subreddit and fetch its recent posts.
+            if SUBREDDITS_TO_SCAN:
                 discovered_overall = set()
                 exit_after_batch = False
-                for p in children:
-                    # If TEST_POST_IDS is set, skip posts not in the list
-                    pid = p.get('data', {}).get('id')
-                    if TEST_POST_IDS and pid not in TEST_POST_IDS:
-                        continue
-                    processed, discovered = process_post(p, session)
-                    if processed:
-                        processed_count += 1
-                    if discovered:
-                        discovered_overall.update(discovered)
-                    # If TEST_POST_LIMIT is set, exit once we've processed that many Friday posts
-                    if TEST_POST_LIMIT and processed_count >= TEST_POST_LIMIT:
-                        logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, stopping after this batch to refresh metadata.")
-                        exit_after_batch = True
-                        break
+                with Session(engine) as session:
+                    # Record scan start time and initial mention count
+                    try:
+                        analytics = session.query(models.Analytics).first()
+                        if analytics:
+                            analytics.last_scan_started = datetime.utcnow()
+                            mentions_before = analytics.total_mentions or 0
+                            session.commit()
+                    except Exception:
+                        logger.debug('Failed to record scan start time')
+                    
+                    for subname in SUBREDDITS_TO_SCAN:
+                        after_sub = None
+                        while True:
+                            try:
+                                data = fetch_subreddit_posts(subname, after_sub)
+                            except Exception as e:
+                                # Check if it's a 429 rate limit error
+                                error_str = str(e)
+                                error_type = type(e).__name__
+                                if '429' in error_str:
+                                    logger.warning(f"Rate limited on /r/{subname}: {error_type}: {error_str} - will retry in next loop iteration")
+                                else:
+                                    logger.warning(f"Exception fetching /r/{subname} (type={error_type}): {error_str}")
+                                    logger.exception(f"Full traceback for /r/{subname}")
+                                break
+                            children = data.get('data', {}).get('children', [])
+                            if not children:
+                                break
+                            if not after_sub:
+                                logger.info(f"Scanning new posts from /r/{subname}")
+                            for p in children:
+                                pid = p.get('data', {}).get('id')
+                                if TEST_POST_IDS and pid not in TEST_POST_IDS:
+                                    continue
+                                pdata = p.get('data', {})
+                                # Only process NSFW posts
+                                over18 = bool(pdata.get('over_18') or pdata.get('over18'))
+                                if not over18:
+                                    continue
+                                # For wowthissubexists, only posts by REDDIT_USER
+                                if subname == normalize('wowthissubexists'):
+                                    author = (pdata.get('author') or '').strip()
+                                    if author.lower() != (REDDIT_USER or '').lower():
+                                        continue
+                                processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False)
+                                if processed:
+                                    processed_count += 1
+                                if discovered:
+                                    discovered_overall.update(discovered)
+                                if TEST_POST_LIMIT and processed_count >= TEST_POST_LIMIT:
+                                    logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, stopping after this batch to refresh metadata.")
+                                    exit_after_batch = True
+                                    break
+                            after_sub = data.get('data', {}).get('after')
+                            if not after_sub or exit_after_batch:
+                                break
+                        if exit_after_batch:
+                            break
+                # If we processed any discovered subs in SUBREDDITS_TO_SCAN mode, refresh metadata
+                if discovered_overall:
+                    logger.info(f"Refreshing metadata for {len(discovered_overall)} subreddits discovered in this scan")
+                    for sname in discovered_overall:
+                        try:
+                            sub = session.query(models.Subreddit).filter_by(name=sname).first()
+                            if sub and should_refresh_sub(sub):
+                                with SUBABOUT_SEMAPHORE:
+                                    update_subreddit_metadata(session, sub)
+                        except Exception:
+                            logger.exception(f"Failed to refresh metadata for /r/{sname}")
+                # Record scan completion metrics
+                with Session(engine) as session:
+                    try:
+                        analytics = session.query(models.Analytics).first()
+                        if analytics:
+                            new_mentions = (analytics.total_mentions or 0) - mentions_before
+                            record_scan_completion(session, scan_start_time, new_mentions)
+                    except Exception:
+                        logger.debug('Failed to record scan completion')
+                # Sleep before next scan iteration
+                logger.info('Completed SUBREDDITS_TO_SCAN pass, sleeping 5 minutes before next scan')
+                time.sleep(300)
+                continue
+            else:
+                data = fetch_user_posts(after)
+                children = data.get('data', {}).get('children', [])
+                if not children:
+                    logger.info('No posts found, sleeping for 10 minutes')
+                    time.sleep(600)
+                    continue
+                with Session(engine) as session:
+                    discovered_overall = set()
+                    exit_after_batch = False
+                    for p in children:
+                        # If TEST_POST_IDS is set, skip posts not in the list
+                        pid = p.get('data', {}).get('id')
+                        if TEST_POST_IDS and pid not in TEST_POST_IDS:
+                            continue
+                        processed, discovered = process_post(p, session)
+                        if processed:
+                            processed_count += 1
+                        if discovered:
+                            discovered_overall.update(discovered)
+                        # If TEST_POST_LIMIT is set, exit once we've processed that many Friday posts
+                        if TEST_POST_LIMIT and processed_count >= TEST_POST_LIMIT:
+                            logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, stopping after this batch to refresh metadata.")
+                            exit_after_batch = True
+                            break
 
                 # After processing posts in this batch, refresh subreddit metadata for
                 # all discovered or-stale subreddits in one pass to reduce frequent
@@ -821,7 +1291,11 @@ def main_loop():
                                 except Exception:
                                     pass
                                 try:
-                                    update_subreddit_metadata(session, sub)
+                                    if should_refresh_sub(sub):
+                                        with SUBABOUT_SEMAPHORE:
+                                            update_subreddit_metadata(session, sub)
+                                    else:
+                                        logger.info(f"Skipping metadata refresh for /r/{sname} (checked within 24h)")
                                 except Exception:
                                     session.rollback()
                         except Exception:
@@ -859,7 +1333,8 @@ def main_loop():
                                     except Exception:
                                         pass
                                     logger.info(f"Post-limit idle-refresh: refreshing /r/{sub.name}")
-                                    update_subreddit_metadata(session, sub)
+                                    with SUBABOUT_SEMAPHORE:
+                                        update_subreddit_metadata(session, sub)
                                 except Exception:
                                     session.rollback()
                     except Exception:
@@ -867,49 +1342,75 @@ def main_loop():
 
                     logger.info('Exiting after metadata refresh (TEST_POST_LIMIT path)')
                     return
-            # pagination
+            
+            # pagination (user posts mode only)
             after = data.get('data', {}).get('after')
             if not after:
-                # No more pages of user posts. Before sleeping, attempt to
-                # refresh metadata for subreddits that are missing key fields
-                # (display_name, title, description or subscriber count).
-                # This performs a single immediate pass so the UI can be
-                # populated without waiting for the next scanner run.
+                # No more pages of user posts. Perform idle metadata refresh:
+                # 1. First refresh subreddits missing metadata, prioritized by mentions
+                # 2. Then refresh subreddits stale (>24 hours), prioritized by mentions
                 try:
-                    logger.info('No more user posts; scanning for subreddits missing metadata')
+                    logger.info('No more user posts; performing idle metadata refresh')
                     with Session(engine) as session:
+                        from sqlalchemy import or_
+                        now = datetime.utcnow()
+                        twenty_four_hours_ago = now - timedelta(hours=24)
+                        
+                        # Phase 1: Subreddits missing metadata, prioritized by mentions DESC
                         try:
-                            from sqlalchemy import or_
                             missing_q = session.query(models.Subreddit).filter(
                                 or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
                                 or_(models.Subreddit.title == None, models.Subreddit.title == ''),
                                 or_(models.Subreddit.description == None, models.Subreddit.description == ''),
                                 models.Subreddit.subscribers == None
-                            )
-                            # Order by last_checked ascending so oldest (and NULL) are refreshed first
-                            try:
-                                missing = missing_q.order_by(models.Subreddit.last_checked.asc().nullsfirst()).all()
-                            except Exception:
-                                missing = missing_q.order_by(models.Subreddit.last_checked.asc()).all()
+                            ).order_by(models.Subreddit.mentions.desc())
+                            missing = missing_q.all()
                         except Exception:
                             session.rollback()
                             missing = []
 
                         if missing:
-                            logger.info(f"Found {len(missing)} subreddits missing metadata; refreshing now")
+                            logger.info(f"Found {len(missing)} subreddits missing metadata; refreshing by mention count")
                             for sub in missing:
                                 try:
-                                    # Skip banned subreddits
-                                    try:
-                                        if getattr(sub, 'is_banned', False):
-                                            logger.info(f"Skipping idle-refresh for banned /r/{sub.name}")
-                                            continue
-                                    except Exception:
-                                        pass
-                                    logger.info(f"Idle-refresh: refreshing /r/{sub.name}")
-                                    update_subreddit_metadata(session, sub)
+                                    if getattr(sub, 'is_banned', False):
+                                        logger.info(f"Skipping idle-refresh for banned /r/{sub.name}")
+                                        continue
+                                    logger.info(f"Idle-refresh (missing metadata): refreshing /r/{sub.name} ({sub.mentions} mentions)")
+                                    with SUBABOUT_SEMAPHORE:
+                                        update_subreddit_metadata(session, sub)
                                 except Exception:
+                                    logger.exception(f"Failed to refresh metadata for /r/{sub.name}")
                                     session.rollback()
+                        
+                        # Phase 2: Subreddits stale (>24 hours), prioritized by mentions DESC
+                        try:
+                            stale_q = session.query(models.Subreddit).filter(
+                                models.Subreddit.last_checked < twenty_four_hours_ago
+                            ).order_by(models.Subreddit.mentions.desc())
+                            stale = stale_q.all()
+                        except Exception:
+                            session.rollback()
+                            stale = []
+                        
+                        if stale:
+                            logger.info(f"Found {len(stale)} subreddits stale (>24h); refreshing by mention count")
+                            for sub in stale:
+                                try:
+                                    if getattr(sub, 'is_banned', False):
+                                        logger.info(f"Skipping idle-refresh for banned /r/{sub.name}")
+                                        continue
+                                    logger.info(f"Idle-refresh (stale metadata): refreshing /r/{sub.name} ({sub.mentions} mentions)")
+                                    with SUBABOUT_SEMAPHORE:
+                                        update_subreddit_metadata(session, sub)
+                                except Exception:
+                                    logger.exception(f"Failed to refresh metadata for /r/{sub.name}")
+                                    session.rollback()
+                        
+                        if missing or stale:
+                            logger.info(f"Idle metadata refresh complete; sleeping 6 hours")
+                        else:
+                            logger.info(f"All metadata current; sleeping 6 hours")
                 except Exception:
                     logger.exception('Error during idle metadata refresh')
                 time.sleep(6 * 3600)
