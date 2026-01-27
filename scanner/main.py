@@ -46,7 +46,6 @@ if not logger.handlers:
 logger.propagate = False
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple')
-REDDIT_USER = os.getenv('REDDIT_USER', 'WeirdPineapple')
 API_RATE_DELAY_SECONDS = float(os.getenv('API_RATE_DELAY_SECONDS', '6.5'))
 API_MAX_CALLS_MINUTE = int(os.getenv('API_MAX_CALLS_MINUTE', '30'))
 # How many days back to rescan existing posts for new/edited comments.
@@ -73,8 +72,8 @@ LAST_SUBREDDIT_REQUEST = 0.0
 # NOTE: metadata freshness is not cached by days; metadata is refreshed
 # immediately after discovery during each scan.
 # Optional testing controls:
-# If set, scanner will only process up to this many Friday posts and then exit.
-TEST_POST_LIMIT = int(os.getenv('TEST_POST_LIMIT')) if os.getenv('TEST_POST_LIMIT') else None
+# If set, scanner will only process up to this many posts PER SOURCE SUBREDDIT and then exit.
+TEST_MAX_POSTS_PER_SUBREDDIT = int(os.getenv('TEST_MAX_POSTS_PER_SUBREDDIT')) if os.getenv('TEST_MAX_POSTS_PER_SUBREDDIT') else None
 
 engine = create_engine(DATABASE_URL, future=True)
 
@@ -541,26 +540,6 @@ def record_scan_completion(session: Session, scan_start_time: float, new_mention
     except Exception:
         logger.exception('Failed to record scan completion')
         session.rollback()
-
-
-def fetch_user_posts(after: str = None):
-    # Calls Reddit public endpoint for user submissions
-    url = f"https://www.reddit.com/user/{REDDIT_USER}/submitted.json?limit=100"
-    if after:
-        url += f"&after={after}"
-    headers = {"User-Agent": "PineappleIndexBot/0.1 (by /u/yourbot)"}
-    timeout = HTTP_REQUEST_TIMEOUT
-    try:
-        r = httpx.get(url, headers=headers, timeout=timeout)
-    except httpx.ReadTimeout as e:
-        logger.warning(f"Read timeout fetching user posts (after={after}): {e}")
-        raise
-    except httpx.RequestError as e:
-        logger.warning(f"Network error fetching user posts (after={after}): {e}")
-        raise
-    rate_limiter.wait_if_needed()
-    r.raise_for_status()
-    return r.json()
 
 
 def fetch_subreddit_posts(subname: str, after: str = None):
@@ -1408,8 +1387,6 @@ def main_loop():
     ensure_tables()
     # Skip startup metadata prefetch; begin scanning immediately
     logger.info("Starting scanner main loop")
-    after = None
-    processed_count = 0
     while True:
         scan_start_time = time.time()
         mentions_before = 0
@@ -1436,6 +1413,7 @@ def main_loop():
                     for subname, config in scan_configs.items():
                         allowed_users = config['allowed_users']
                         nsfw_only = config['nsfw_only']
+                        subreddit_processed_count = 0  # Track posts processed for this specific subreddit
                         after_sub = None
                         while True:
                             try:
@@ -1475,18 +1453,16 @@ def main_loop():
                                         continue
                                 processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
                                 if processed:
-                                    processed_count += 1
+                                    subreddit_processed_count += 1
                                 if discovered:
                                     discovered_overall.update(discovered)
-                                if TEST_POST_LIMIT and processed_count >= TEST_POST_LIMIT:
-                                    logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, stopping after this batch to refresh metadata.")
-                                    exit_after_batch = True
+                                if TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT:
+                                    logger.info(f"Reached TEST_MAX_POSTS_PER_SUBREDDIT={TEST_MAX_POSTS_PER_SUBREDDIT} for /r/{subname}, moving to next subreddit.")
                                     break
                             after_sub = data.get('data', {}).get('after')
-                            if not after_sub or exit_after_batch:
+                            # Stop pagination if we've hit the per-subreddit limit or no more pages
+                            if not after_sub or (TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT):
                                 break
-                        if exit_after_batch:
-                            break
                 # If we discovered any subreddits in this batch, queue them for async metadata refresh
                 if discovered_overall:
                     queued_count = 0
@@ -1507,141 +1483,11 @@ def main_loop():
                 # Sleep before next scan iteration
                 logger.info('Completed SUBREDDITS_TO_SCAN pass, sleeping 5 minutes before next scan')
                 time.sleep(300)
-                continue
             else:
-                data = fetch_user_posts(after)
-                children = data.get('data', {}).get('children', [])
-                if not children:
-                    logger.info('No posts found, sleeping for 10 minutes')
-                    time.sleep(600)
-                    continue
-                with Session(engine) as session:
-                    discovered_overall = set()
-                    exit_after_batch = False
-                    for p in children:
-                        processed, discovered = process_post(p, session)
-                        if processed:
-                            processed_count += 1
-                        if discovered:
-                            discovered_overall.update(discovered)
-                        # If TEST_POST_LIMIT is set, exit once we've processed that many Friday posts
-                        if TEST_POST_LIMIT and processed_count >= TEST_POST_LIMIT:
-                            logger.info(f"Reached TEST_POST_LIMIT={TEST_POST_LIMIT}, stopping after this batch to refresh metadata.")
-                            exit_after_batch = True
-                            break
-
-                # After processing posts in this batch, queue discovered subreddits for async metadata refresh\n                if discovered_overall:\n                    queued_count = 0\n                    for sname in discovered_overall:\n                        if queue_metadata_refresh(sname):\n                            queued_count += 1\n                    if queued_count > 0:\n                        logger.info(f\"Queued {queued_count}/{len(discovered_overall)} subreddits for async metadata refresh\")
-                if exit_after_batch:
-                    logger.info('TEST_POST_LIMIT reached; performing missing-metadata refresh before exiting')
-                    try:
-                        try:
-                            from sqlalchemy import or_
-                            missing_q = session.query(models.Subreddit).filter(
-                                or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
-                                or_(models.Subreddit.title == None, models.Subreddit.title == ''),
-                                or_(models.Subreddit.description == None, models.Subreddit.description == ''),
-                                models.Subreddit.subscribers == None
-                            )
-                            # Order by last_checked ascending so oldest (and NULL) are refreshed first
-                            try:
-                                missing = missing_q.order_by(models.Subreddit.last_checked.asc().nullsfirst()).all()
-                            except Exception:
-                                # Fallback if nullsfirst() isn't available in this SQLAlchemy version
-                                missing = missing_q.order_by(models.Subreddit.last_checked.asc()).all()
-                        except Exception:
-                            session.rollback()
-                            missing = []
-
-                        if missing:
-                            logger.info(f"Found {len(missing)} subreddits missing metadata; refreshing now (post-limit path)")
-                            for sub in missing:
-                                try:
-                                    # Skip banned subreddits
-                                    try:
-                                        if getattr(sub, 'is_banned', False):
-                                            logger.info(f"Skipping post-limit idle-refresh for banned /r/{sub.name}")
-                                            continue
-                                    except Exception:
-                                        pass
-                                    logger.info(f"Post-limit idle-refresh: refreshing /r/{sub.name}")
-                                    update_subreddit_metadata(session, sub)
-                                except Exception:
-                                    session.rollback()
-                    except Exception:
-                        logger.exception('Error during post-limit missing metadata refresh')
-
-                    logger.info('Exiting after metadata refresh (TEST_POST_LIMIT path)')
-                    return
-            
-            # pagination (user posts mode only)
-            after = data.get('data', {}).get('after')
-            if not after:
-                # No more pages of user posts. Perform idle metadata refresh:
-                # 1. First refresh subreddits missing metadata, prioritized by mentions
-                # 2. Then refresh subreddits stale (>24 hours), prioritized by mentions
-                try:
-                    logger.info('No more user posts; performing idle metadata refresh')
-                    with Session(engine) as session:
-                        from sqlalchemy import or_
-                        now = datetime.utcnow()
-                        twenty_four_hours_ago = now - timedelta(hours=24)
-                        
-                        # Phase 1: Subreddits missing metadata, prioritized by mentions DESC
-                        try:
-                            missing_q = session.query(models.Subreddit).filter(
-                                or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
-                                or_(models.Subreddit.title == None, models.Subreddit.title == ''),
-                                or_(models.Subreddit.description == None, models.Subreddit.description == ''),
-                                models.Subreddit.subscribers == None
-                            ).order_by(models.Subreddit.mentions.desc())
-                            missing = missing_q.all()
-                        except Exception:
-                            session.rollback()
-                            missing = []
-
-                        if missing:
-                            logger.info(f"Found {len(missing)} subreddits missing metadata; refreshing by mention count")
-                            for sub in missing:
-                                try:
-                                    if getattr(sub, 'is_banned', False):
-                                        logger.info(f"Skipping idle-refresh for banned /r/{sub.name}")
-                                        continue
-                                    logger.info(f"Idle-refresh (missing metadata): refreshing /r/{sub.name} ({sub.mentions} mentions)")
-                                    update_subreddit_metadata(session, sub)
-                                except Exception:
-                                    logger.exception(f"Failed to refresh metadata for /r/{sub.name}")
-                                    session.rollback()
-                        
-                        # Phase 2: Subreddits stale (>24 hours), prioritized by mentions DESC
-                        try:
-                            stale_q = session.query(models.Subreddit).filter(
-                                models.Subreddit.last_checked < twenty_four_hours_ago
-                            ).order_by(models.Subreddit.mentions.desc())
-                            stale = stale_q.all()
-                        except Exception:
-                            session.rollback()
-                            stale = []
-                        
-                        if stale:
-                            logger.info(f"Found {len(stale)} subreddits stale (>24h); refreshing by mention count")
-                            for sub in stale:
-                                try:
-                                    if getattr(sub, 'is_banned', False):
-                                        logger.info(f"Skipping idle-refresh for banned /r/{sub.name}")
-                                        continue
-                                    logger.info(f"Idle-refresh (stale metadata): refreshing /r/{sub.name} ({sub.mentions} mentions)")
-                                    update_subreddit_metadata(session, sub)
-                                except Exception:
-                                    logger.exception(f"Failed to refresh metadata for /r/{sub.name}")
-                                    session.rollback()
-                        
-                        if missing or stale:
-                            logger.info(f"Idle metadata refresh complete; sleeping 6 hours")
-                        else:
-                            logger.info(f"All metadata current; sleeping 6 hours")
-                except Exception:
-                    logger.exception('Error during idle metadata refresh')
-                time.sleep(6 * 3600)
+                # No scan configs found in database
+                logger.warning('No subreddit scan configs found in database. Add configurations to subreddit_scan_config table.')
+                logger.info('Sleeping 10 minutes before checking again')
+                time.sleep(600)
         except Exception as e:
             logger.exception(f"Scanner main loop error: {e}")
             time.sleep(60)
