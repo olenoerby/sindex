@@ -89,9 +89,10 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
       REDIS_URL: redis://redis:6379/0
       SERVICE_NAME: redis_worker
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       TZ: ${TZ:-UTC}
       PYTHONWARNINGS: ignore::UserWarning
-    command: ["rq", "worker", "default"]
+    command: ["python", "-m", "api.redis_worker_runner"]
     networks:
       - pineapple-net
 

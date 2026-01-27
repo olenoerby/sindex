@@ -24,6 +24,7 @@ except ImportError:
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import models
 from api.utils import parse_retry_after_seconds
+from api.distributed_rate_limiter import DistributedRateLimiter
 
 # Load environment variables from .env at repo root so values like
 # `POST_COMMENT_LOOKBACK_DAYS` can be set without editing `main.py`.
@@ -77,7 +78,20 @@ TEST_MAX_POSTS_PER_SUBREDDIT = int(os.getenv('TEST_MAX_POSTS_PER_SUBREDDIT')) if
 
 engine = create_engine(DATABASE_URL, future=True)
 
-# Redis task queue for async metadata fetches
+# Initialize distributed rate limiter for coordination with metadata_worker
+try:
+    redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+    distributed_rate_limiter = DistributedRateLimiter(
+        redis_url=redis_url,
+        min_delay_seconds=API_RATE_DELAY_SECONDS,
+        max_calls_per_minute=API_MAX_CALLS_MINUTE
+    )
+    distributed_rate_limiter.set_container_name("scanner")
+    logger.info("Initialized distributed rate limiter (shared with metadata_worker)")
+except Exception as e:
+    logger.error(f"Failed to initialize distributed rate limiter: {e}")
+    logger.warning("Continuing with local rate limiting only")
+    distributed_rate_limiter = None
 _redis_client = None
 def get_redis_client():
     """Lazy-load Redis client for task queueing."""
@@ -562,7 +576,10 @@ def fetch_subreddit_posts(subname: str, after: str = None):
     logger.debug(f"fetch_subreddit_posts /r/{subname}: status_code={r.status_code}, headers={dict(r.headers)}")
     
     try:
-        rate_limiter.wait_if_needed()
+        if distributed_rate_limiter:
+            distributed_rate_limiter.wait_if_needed()
+        else:
+            rate_limiter.wait_if_needed()
     except Exception:
         pass
     
@@ -631,7 +648,10 @@ def fetch_post_comments(post_id: str, max_retries: int = 5):
 
         # Always sleep a bit to respect general API rate limiting
         try:
-            rate_limiter.wait_if_needed()
+            if distributed_rate_limiter:
+                distributed_rate_limiter.wait_if_needed()
+            else:
+                rate_limiter.wait_if_needed()
         except Exception:
             pass
 
@@ -670,29 +690,38 @@ def fetch_sub_about(name: str):
     base_sleep = 2
     while True:
         attempt += 1
-        # Ensure only one thread calls Reddit about endpoint at a time and
-        # respect the global API_RATE_DELAY_SECONDS spacing between calls.
+        # Use distributed rate limiter if available for coordination
         try:
             global LAST_SUBREDDIT_REQUEST
-            # Acquire short-lived lock to enforce spacing and serialization
-            SUBREDDIT_RATE_LOCK.acquire()
-            try:
-                now_ts = time.time()
-                elapsed = now_ts - (LAST_SUBREDDIT_REQUEST or 0.0)
-                if elapsed < API_RATE_DELAY_SECONDS:
-                    sleep_for = API_RATE_DELAY_SECONDS - elapsed
+            if distributed_rate_limiter:
+                distributed_rate_limiter.wait_if_needed()
+            else:
+                # Acquire short-lived lock to enforce spacing and serialization
+                SUBREDDIT_RATE_LOCK.acquire()
+                try:
+                    now_ts = time.time()
+                    elapsed = now_ts - (LAST_SUBREDDIT_REQUEST or 0.0)
+                    if elapsed < API_RATE_DELAY_SECONDS:
+                        sleep_for = API_RATE_DELAY_SECONDS - elapsed
+                        try:
+                            time.sleep(sleep_for)
+                        except Exception:
+                            pass
+                    LAST_SUBREDDIT_REQUEST = now_ts
+                finally:
                     try:
-                        time.sleep(sleep_for)
+                        SUBREDDIT_RATE_LOCK.release()
                     except Exception:
                         pass
-                # perform the request while holding lock to prevent concurrent calls
-                r = httpx.get(url, headers=headers, timeout=timeout)
+            
+            # perform the request
+            r = httpx.get(url, headers=headers, timeout=timeout)
+            
+            # Record this API call
+            if distributed_rate_limiter:
+                distributed_rate_limiter.record_api_call()
+            else:
                 LAST_SUBREDDIT_REQUEST = time.time()
-            finally:
-                try:
-                    SUBREDDIT_RATE_LOCK.release()
-                except Exception:
-                    pass
         except httpx.ReadTimeout as e:
             if attempt <= max_retries:
                 sleep_for = min(60, base_sleep * (2 ** (attempt - 1)))
@@ -712,7 +741,10 @@ def fetch_sub_about(name: str):
 
         # small pause to respect API rate limiting
         try:
-            rate_limiter.wait_if_needed()
+            if distributed_rate_limiter:
+                distributed_rate_limiter.wait_if_needed()
+            else:
+                rate_limiter.wait_if_needed()
         except Exception:
             pass
 
@@ -910,8 +942,11 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
 
     # fetch comments first so we can determine whether any are new
     try:
-        # Ensure minimum spacing between requests to Reddit
-        rate_limiter.wait_if_needed()
+        # Use distributed rate limiter for coordination
+        if distributed_rate_limiter:
+            distributed_rate_limiter.wait_if_needed()
+        else:
+            rate_limiter.wait_if_needed()
         comments_json = fetch_post_comments(reddit_id)
     except Exception as e:
         logger.exception(f"Failed to fetch comments for {reddit_id}: {e}")
@@ -922,7 +957,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
 
     # If there are no comments at all, create the post record and move on
     if not found:
-        post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, subreddit_id=source_sub.id if source_sub else None)
+        post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url)
         session.add(post)
         session.commit()
         try:
@@ -963,7 +998,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
 
     # Ensure a Post row exists (create if missing)
     if not existing:
-        post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, subreddit_id=source_sub.id if source_sub else None)
+        post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url)
         session.add(post)
         session.commit()
         try:
@@ -1417,8 +1452,11 @@ def main_loop():
                         after_sub = None
                         while True:
                             try:
-                                # Ensure minimum spacing between requests to Reddit
-                                rate_limiter.wait_if_needed()
+                                # Use distributed rate limiter for coordination
+                                if distributed_rate_limiter:
+                                    distributed_rate_limiter.wait_if_needed()
+                                else:
+                                    rate_limiter.wait_if_needed()
                                 data = fetch_subreddit_posts(subname, after_sub)
                             except Exception as e:
                                 # Check if it's a 429 rate limit error

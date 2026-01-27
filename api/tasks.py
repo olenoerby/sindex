@@ -79,16 +79,16 @@ def refresh_subreddit_job(name: str):
                 except Exception:
                     pass
                 sub.is_banned = sub.is_banned or False
-                sub.not_found = False
+                sub.is_not_found = False
                 # successful fetch: clear any retry scheduling
                 sub.retry_priority = 0
                 sub.next_retry_at = None
             elif r.status_code in (403, 404):
                 if r.status_code == 403:
                     sub.is_banned = True
-                    sub.not_found = False
+                    sub.is_not_found = False
                 else:
-                    sub.not_found = True
+                    sub.is_not_found = True
                     sub.is_banned = False
                 try:
                     payload = r.json()
@@ -111,7 +111,7 @@ def refresh_subreddit_job(name: str):
             sub.last_checked = datetime.utcnow()
             session.add(sub)
             session.commit()
-            logger.info(f"Background refresh complete for /r/{lname}: is_banned={sub.is_banned}, not_found={sub.not_found}")
+            logger.info(f"Background refresh complete for /r/{lname}: is_banned={sub.is_banned}, is_not_found={sub.is_not_found}")
     except Exception as e:
         logger.exception(f"refresh_subreddit_job failed for /r/{name}: {e}")
         raise
