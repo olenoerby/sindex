@@ -44,10 +44,15 @@ REDDIT_USER = os.getenv('REDDIT_USER', 'WeirdPineapple')
 API_RATE_DELAY = float(os.getenv('API_RATE_DELAY', '6.5'))
 # How many days back to rescan existing posts for new/edited comments.
 # Set `POST_COMMENT_LOOKBACK_DAYS` to 0 to skip rescanning existing posts.
-try:
-    POST_COMMENT_LOOKBACK_DAYS = int(os.getenv('POST_COMMENT_LOOKBACK_DAYS', '180'))
-except Exception:
-    POST_COMMENT_LOOKBACK_DAYS = 180
+# If not set or empty, will rescan ALL posts with no day limit.
+post_lookback_env = os.getenv('POST_COMMENT_LOOKBACK_DAYS', '').strip()
+if post_lookback_env:
+    try:
+        POST_COMMENT_LOOKBACK_DAYS = int(post_lookback_env)
+    except Exception:
+        POST_COMMENT_LOOKBACK_DAYS = None
+else:
+    POST_COMMENT_LOOKBACK_DAYS = None
 # Number of days to consider subreddit metadata fresh before re-fetching from Reddit.
 # Can be set via `SUBREDDIT_META_CACHE_DAYS`; falls back to legacy `META_CACHE_DAYS` if present.
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
@@ -737,15 +742,16 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     except Exception:
         session.rollback()
     # If post already exists, decide whether to re-scan comments.
-    # We re-scan posts that are within the past ~6 months to catch edited
-    # comments which may have added new subreddit mentions. Older posts are
-    # skipped to avoid reprocessing a large backlog.
+    # We always process posts the first time to capture their mentions.
+    # On subsequent runs, we only re-scan posts within the configured lookback window
+    # to catch edited comments. Older posts are skipped to avoid reprocessing a large
+    # backlog (comments older than ~180 days are archived anyway).
     existing = session.query(models.Post).filter_by(reddit_post_id=reddit_id).first()
     now = datetime.utcnow()
-    # Use configured lookback days to determine whether to re-scan comments
-    six_months_ago_ts = int((now - timedelta(days=POST_COMMENT_LOOKBACK_DAYS)).timestamp())
-    if existing:
-        # If the post is older than six months, skip re-scanning comments.
+    
+    if existing and POST_COMMENT_LOOKBACK_DAYS is not None:
+        # Only skip re-scanning if post exists AND lookback is configured
+        six_months_ago_ts = int((now - timedelta(days=POST_COMMENT_LOOKBACK_DAYS)).timestamp())
         try:
             post_created = int(existing.created_utc or 0)
         except Exception:
@@ -753,7 +759,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
         if post_created and post_created < six_months_ago_ts:
             logger.info(f"Post {reddit_id} already in DB and older than {POST_COMMENT_LOOKBACK_DAYS} days, skipping comments")
             return (True, set())
-        # Otherwise, allow re-scan below to detect new or edited comments
+    # Otherwise, process/rescan the post below to capture mentions and detect new/edited comments
 
     # fetch comments first so we can determine whether any are new
     try:

@@ -13,9 +13,14 @@
 <body>
   <div class="page">
     <header>
-      <div class="eyebrow">Pineapple Index</div>
-      <h1>Analytics Control Room</h1>
-      <p class="lead">A wide-angle view of all Reddit mentions we track. Explore volume over time, identify standout subreddits and posts, and keep tabs on scanner health.</p>
+      <div class="eyebrow"><a href="/" style="color: inherit; text-decoration: none;">Pineapple Index</a></div>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+        <div>
+          <h1>Analytics Control Room</h1>
+          <p class="lead">A wide-angle view of all Reddit mentions we track. Explore volume over time, identify standout subreddits and posts, and keep tabs on scanner health.</p>
+        </div>
+        <button id="refreshBtn" class="btn" style="margin-top: 0; white-space: nowrap;">↻ Refresh</button>
+      </div>
       <div class="meta">
         <span class="pill" id="lastScanned">Last DB run: —</span>
         <span class="pill" id="lastPolled">Last polled: —</span>
@@ -67,8 +72,8 @@
         <div class="stat-value" id="newSubs30">—</div>
         <div class="stat-sub">First-time mentions in the last 30 days.</div>
       </div>
-      <div class="card">
-        <h3>Active commenters</h3>
+      <div class="card card-wide">
+        <h3>Top commenter</h3>
         <div class="stat-value" id="topCommenterName">—</div>
         <div class="stat-sub" id="topCommenterCount">—</div>
       </div>
@@ -109,7 +114,7 @@
       </div>
     </section>
 
-    <section class="split">
+    <section class="split" style="margin-top: 20px;">
       <div class="card">
         <div class="row-title"><h3 style="margin:0">Top posts</h3><small>Most-mentioned posts</small></div>
         <table class="table" id="topPostsTable">
@@ -133,6 +138,13 @@
     let currentDays = 90;
     let timelineChart, subsChart;
     const textColor = '#d9e4f5';
+
+    // Cache for change detection
+    const cache = {
+      stats: {},
+      daily: {},
+      topBlocks: {}
+    };
 
     const fmt = (n, opts={}) => (n ?? 0).toLocaleString('en-US', {maximumFractionDigits: 1, ...opts});
     const fmtDate = (iso) => iso ? new Date(iso).toLocaleString() : '—';
@@ -174,15 +186,40 @@
         const res = await fetch(`/stats?days=${currentDays}`);
         if(!res.ok) throw new Error('HTTP '+res.status);
         const s = await res.json();
-        document.getElementById('totalMentions').textContent = fmt(s.total_mentions);
-        document.getElementById('totalSubs').textContent = fmt(s.total_subreddits);
-        document.getElementById('totalPosts').textContent = fmt(s.total_posts);
-        document.getElementById('totalComments').textContent = fmt(s.total_comments);
-        document.getElementById('lastScanned').textContent = 'Last DB run: ' + fmtDate(s.last_scanned);
-        document.getElementById('lastScanNewMentions').textContent = fmt(s.last_scan_new_mentions ?? 0) + ' new mentions';
+        
+        // Only update if values changed
+        if(cache.stats.total_mentions !== s.total_mentions) {
+          document.getElementById('totalMentions').textContent = fmt(s.total_mentions);
+          cache.stats.total_mentions = s.total_mentions;
+        }
+        if(cache.stats.total_subreddits !== s.total_subreddits) {
+          document.getElementById('totalSubs').textContent = fmt(s.total_subreddits);
+          cache.stats.total_subreddits = s.total_subreddits;
+        }
+        if(cache.stats.total_posts !== s.total_posts) {
+          document.getElementById('totalPosts').textContent = fmt(s.total_posts);
+          cache.stats.total_posts = s.total_posts;
+        }
+        if(cache.stats.total_comments !== s.total_comments) {
+          document.getElementById('totalComments').textContent = fmt(s.total_comments);
+          cache.stats.total_comments = s.total_comments;
+        }
+        if(cache.stats.last_scanned !== s.last_scanned) {
+          document.getElementById('lastScanned').textContent = 'Last DB run: ' + fmtDate(s.last_scanned);
+          cache.stats.last_scanned = s.last_scanned;
+        }
+        if(cache.stats.last_scan_new_mentions !== s.last_scan_new_mentions) {
+          document.getElementById('lastScanNewMentions').textContent = fmt(s.last_scan_new_mentions ?? 0) + ' new mentions';
+          cache.stats.last_scan_new_mentions = s.last_scan_new_mentions;
+        }
         const dur = s.last_scan_duration ? `${fmt(s.last_scan_duration, {maximumFractionDigits:0})}s` : '—';
         const started = s.last_scan_started ? new Date(s.last_scan_started).toLocaleString() : '—';
-        document.getElementById('lastScanMeta').textContent = `Started ${started} · Duration ${dur}`;
+        const meta = `Started ${started} · Duration ${dur}`;
+        if(cache.stats.lastScanMeta !== meta) {
+          document.getElementById('lastScanMeta').textContent = meta;
+          cache.stats.lastScanMeta = meta;
+        }
+        document.getElementById('lastPolled').textContent = 'Last polled: ' + new Date().toLocaleString();
       } catch(err) {
         console.warn('stats failed', err);
       }
@@ -236,6 +273,14 @@
         const res = await fetch(`/stats/daily?days=${days}`);
         if(!res.ok) throw new Error('HTTP '+res.status);
         const { items=[] } = await res.json();
+        
+        // Create a hash of the data to detect changes
+        const dataKey = JSON.stringify(items);
+        if(cache.daily[days] === dataKey) {
+          return; // No changes, skip update
+        }
+        cache.daily[days] = dataKey;
+        
         const labels = items.map(it => it.date);
         const mentions = items.map(it => it.mentions || 0);
         const posts = items.map(it => it.posts || 0);
@@ -265,9 +310,9 @@
         const avgMentions = mentions.length ? totalMentions / mentions.length : 0;
         const last7 = mentions.slice(-7);
         const avg7 = last7.length ? last7.reduce((a,b)=>a+b,0) / last7.length : 0;
-        document.getElementById('mentionsPerDay').textContent = `${fmt(avgMentions)} avg/day · ${fmt(avg7)} last 7d`; // metric 2/8
-        document.getElementById('mentionsPerPost').textContent = totalPosts ? `${fmt(totalMentions / totalPosts)} mentions per post` : '—'; // metric 3/8
-        document.getElementById('commentsPerPost').textContent = totalPosts ? `${fmt(totalComments / totalPosts)} comments per post` : '—'; // metric 4/8
+        document.getElementById('mentionsPerDay').textContent = `${fmt(avgMentions)} avg/day · ${fmt(avg7)} last 7d`;
+        document.getElementById('mentionsPerPost').textContent = totalPosts ? `${fmt(totalMentions / totalPosts)} mentions per post` : '—';
+        document.getElementById('commentsPerPost').textContent = totalPosts ? `${fmt(totalComments / totalPosts)} comments per post` : '—';
 
         // Peak day
         let peakIdx = 0; let peakVal = 0;
@@ -285,8 +330,6 @@
         document.getElementById('timelineSummary').textContent = `${fmt(totalMentions)} mentions, ${fmt(totalPosts)} posts, ${fmt(totalComments)} comments across ${labels.length} days`;
         const peakSubs = Math.max(...newSubs, 0);
         document.getElementById('subsSummary').textContent = `${fmt(sum30Subs)} new subs (last 30d) · peak ${fmt(peakSubs)} in a day`;
-
-        document.getElementById('lastPolled').textContent = 'Last polled: ' + new Date().toLocaleString();
       } catch(err) {
         console.warn('daily failed', err);
       }
@@ -298,71 +341,87 @@
         const ts = await fetch(`/stats/top?limit=20&days=${currentDays}`);
         if(ts.ok){
           const data = await ts.json();
-          const tbody = document.querySelector('#topSubredditsTable tbody');
-          tbody.innerHTML = '';
-          data.slice(0,15).forEach((row, idx) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${idx+1}</td><td>/r/${row.name}</td><td>${fmt(row.mentions)}</td>`;
-            tbody.appendChild(tr);
-          });
+          const dataKey = JSON.stringify(data.slice(0,15));
+          if(cache.topBlocks.subreddits !== dataKey) {
+            cache.topBlocks.subreddits = dataKey;
+            const tbody = document.querySelector('#topSubredditsTable tbody');
+            tbody.innerHTML = '';
+            data.slice(0,15).forEach((row, idx) => {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `<td>${idx+1}</td><td>/r/${row.name}</td><td>${fmt(row.mentions)}</td>`;
+              tbody.appendChild(tr);
+            });
+          }
         }
 
         // Top commenters
         const tc = await fetch(`/stats/top_commenters?limit=15&days=${currentDays}`);
         if(tc.ok){
           const data = await tc.json();
-          const tbody = document.querySelector('#topCommentersTable tbody');
-          tbody.innerHTML = '';
-          let topName = '—', topCount = '—';
-          let rowNum = 1;
-          (data.items || []).slice(0,15).forEach((row) => {
-            if(!row.user_id){ return; }
-            const label = row.user_id;
-            let userCell = '';
-            if(label.toLowerCase() === '[deleted]'){
-              userCell = '[deleted]';
-            } else {
-              const href = `https://www.reddit.com/user/${encodeURIComponent(label)}`;
-              userCell = `<a href="${href}" target="_blank">${label}</a>`;
-            }
-            if(topName === '—'){ topName = label === '[deleted]' ? '[deleted]' : label; topCount = fmt(row.comments); }
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${rowNum}</td><td>${userCell}</td><td>${fmt(row.comments)}</td>`;
-            tbody.appendChild(tr);
-            rowNum++;
-          });
-          document.getElementById('topCommenterName').textContent = topName;
-          document.getElementById('topCommenterCount').textContent = `${topCount} comments logged`;
+          const dataKey = JSON.stringify(data);
+          if(cache.topBlocks.commenters !== dataKey) {
+            cache.topBlocks.commenters = dataKey;
+            const tbody = document.querySelector('#topCommentersTable tbody');
+            tbody.innerHTML = '';
+            let topName = '—', topCount = '—';
+            let rowNum = 1;
+            (data.items || []).slice(0,15).forEach((row) => {
+              if(!row.user_id){ return; }
+              const label = row.user_id;
+              let userCell = '';
+              if(label.toLowerCase() === '[deleted]'){
+                userCell = '[deleted]';
+              } else {
+                const href = `https://www.reddit.com/user/${encodeURIComponent(label)}`;
+                userCell = `<a href="${href}" target="_blank">${label}</a>`;
+              }
+              if(topName === '—'){ topName = label === '[deleted]' ? '[deleted]' : label; topCount = fmt(row.comments); }
+              const tr = document.createElement('tr');
+              tr.innerHTML = `<td>${rowNum}</td><td>${userCell}</td><td>${fmt(row.comments)}</td>`;
+              tbody.appendChild(tr);
+              rowNum++;
+            });
+            document.getElementById('topCommenterName').textContent = topName;
+            document.getElementById('topCommenterCount').textContent = `${topCount} comments logged`;
+          }
         }
 
         // Top posts (by mentions)
         const tp = await fetch(`/stats/top_posts?limit=15&days=${currentDays}`);
         if(tp.ok){
           const data = await tp.json();
-          const tbody = document.querySelector('#topPostsTable tbody');
-          tbody.innerHTML = '';
-          (data.items || []).slice(0,15).forEach((row, idx) => {
-            const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
-            const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.mentions)}</td>`;
-            tbody.appendChild(tr);
-          });
+          const dataKey = JSON.stringify(data);
+          if(cache.topBlocks.posts !== dataKey) {
+            cache.topBlocks.posts = dataKey;
+            const tbody = document.querySelector('#topPostsTable tbody');
+            tbody.innerHTML = '';
+            (data.items || []).slice(0,15).forEach((row, idx) => {
+              const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
+              const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
+              const tr = document.createElement('tr');
+              tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.mentions)}</td>`;
+              tbody.appendChild(tr);
+            });
+          }
         }
 
         // Top posts by distinct subreddits
         const tu = await fetch(`/stats/top_unique_posts?limit=15&days=${currentDays}`);
         if(tu.ok){
           const data = await tu.json();
-          const tbody = document.querySelector('#topUniquePostsTable tbody');
-          tbody.innerHTML = '';
-          (data.items || []).slice(0,15).forEach((row, idx) => {
-            const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
-            const url = row.url || `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.unique_subreddits)}</td>`;
-            tbody.appendChild(tr);
-          });
+          const dataKey = JSON.stringify(data);
+          if(cache.topBlocks.uniquePosts !== dataKey) {
+            cache.topBlocks.uniquePosts = dataKey;
+            const tbody = document.querySelector('#topUniquePostsTable tbody');
+            tbody.innerHTML = '';
+            (data.items || []).slice(0,15).forEach((row, idx) => {
+              const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
+              const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
+              const tr = document.createElement('tr');
+              tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.unique_subreddits)}</td>`;
+              tbody.appendChild(tr);
+            });
+          }
         }
       } catch(err) {
         console.warn('top blocks failed', err);
@@ -382,6 +441,21 @@
       }
     }
     bindControls();
+    
+    // Manual refresh button
+    document.getElementById('refreshBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.style.opacity = '0.6';
+      await Promise.all([
+        fetchStats(),
+        fetchDaily(currentDays),
+        fetchTopBlocks()
+      ]);
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    });
+    
     fetchStats();
     fetchDaily(currentDays);
     fetchTopBlocks();

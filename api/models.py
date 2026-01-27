@@ -71,7 +71,7 @@ class Mention(Base):
     # the subreddit where the mention was observed (source subreddit)
     source_subreddit_id = Column(Integer, ForeignKey('subreddits.id'), nullable=True)
     comment_id = Column(Integer, ForeignKey('comments.id'))
-    # store user id (author_fullname or username) to de-duplicate mentions by user
+    # store user id (author_fullname or username) for reference
     user_id = Column(String(255), nullable=True, index=True)
     post_id = Column(Integer, ForeignKey('posts.id'))
     timestamp = Column(BigInteger, index=True)
@@ -80,7 +80,6 @@ class Mention(Base):
     context_snippet = Column(Text, nullable=True)  # short excerpt from the comment around the mention
     __table_args__ = (
         UniqueConstraint('subreddit_id', 'comment_id', name='uq_mention_sub_comment'),
-        UniqueConstraint('subreddit_id', 'user_id', name='uq_mention_sub_user'),
     )
     comment = relationship('Comment', back_populates='mentions')
 

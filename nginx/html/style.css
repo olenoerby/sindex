@@ -142,6 +142,10 @@ input::placeholder { color: var(--muted); }
   box-shadow: var(--shadow); 
 }
 
+.card-wide {
+  grid-column: span 2;
+}
+
 .card h3 { 
   margin: 0 0 6px; 
   font-size: 14px; 

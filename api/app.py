@@ -173,6 +173,7 @@ def list_subreddits(
     max_subscribers: Optional[int] = None,
     show_available: Optional[bool] = None,
     show_banned: Optional[bool] = None,
+    show_pending: Optional[bool] = None,
     show_nsfw: Optional[bool] = None,
     show_non_nsfw: Optional[bool] = None,
     first_mentioned_days: Optional[int] = None,
@@ -184,7 +185,7 @@ def list_subreddits(
     offset = (page - 1) * per_page
     
     # Debug logging for filter parameters
-    api_logger.info(f"Filter params: show_available={show_available}, show_banned={show_banned}, show_nsfw={show_nsfw}, show_non_nsfw={show_non_nsfw}")
+    api_logger.info(f"Filter params: show_available={show_available}, show_banned={show_banned}, show_pending={show_pending}, show_nsfw={show_nsfw}, show_non_nsfw={show_non_nsfw}")
     
     # validate sort and sort_dir here to avoid FastAPI raising a 422
     allowed_sorts = {'mentions','subscribers','active_users','created_utc','first_mentioned','name','display_name_prefixed','title','description','random'}
@@ -243,9 +244,10 @@ def list_subreddits(
                 subq = subq.filter(nsfw_conditions[0])
             else:
                 subq = subq.filter(or_(*nsfw_conditions))
-        else:
-            # Both disabled - return empty result
+        elif show_nsfw is False and show_non_nsfw is False:
+            # Both explicitly disabled - return empty result
             subq = subq.filter(models.Subreddit.id == None)
+        # else: both are None (not specified) - default to showing all (no filter)
 
         # Availability filters - work as AND conditions
         # show_available=True means "include available", =False means "exclude available"
@@ -273,6 +275,22 @@ def list_subreddits(
             except Exception:
                 avail_conditions.append(models.Subreddit.is_banned == True)
         
+        if show_pending is False:
+            # Exclude pending subreddits (title is None/NULL)
+            try:
+                avail_conditions.append(models.Subreddit.title != None)
+            except Exception:
+                pass
+        elif show_pending is True:
+            # Include only pending subreddits (title is None/NULL)
+            try:
+                avail_conditions.append(models.Subreddit.title == None)
+            except Exception:
+                pass
+        else:
+            # show_pending is None (not specified) - default to showing pending (include all)
+            pass
+        
         if avail_conditions:
             # At least one is enabled - combine with OR
             from sqlalchemy import or_
@@ -280,9 +298,10 @@ def list_subreddits(
                 subq = subq.filter(avail_conditions[0])
             else:
                 subq = subq.filter(or_(*avail_conditions))
-        else:
-            # Both disabled - return empty result
+        elif show_available is False and show_banned is False and show_pending is False:
+            # All explicitly disabled - return empty result
             subq = subq.filter(models.Subreddit.id == None)
+        # else: all are None (not specified) - default to showing all (no filter)
         # Apply mentions filters via HAVING (since mentions is an aggregate)
         # Do not force a minimum mention count; include subreddits with 0 mentions
         if min_mentions is not None:
