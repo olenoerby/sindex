@@ -563,6 +563,15 @@ def fetch_subreddit_posts(subname: str, after: str = None):
         url += f"&after={after}"
     headers = {"User-Agent": "PineappleIndexBot/0.1 (by /u/yourbot)"}
     timeout = HTTP_REQUEST_TIMEOUT
+    # Respect the distributed/local rate limiter BEFORE making the request
+    try:
+        if distributed_rate_limiter:
+            distributed_rate_limiter.wait_if_needed()
+        else:
+            rate_limiter.wait_if_needed()
+    except Exception:
+        pass
+
     try:
         r = httpx.get(url, headers=headers, timeout=timeout)
     except httpx.ReadTimeout as e:
@@ -571,17 +580,9 @@ def fetch_subreddit_posts(subname: str, after: str = None):
     except httpx.RequestError as e:
         logger.warning(f"Network error fetching /r/{subname} posts (after={after}): {e}")
         raise
-    
+
     # Log response status and headers for debugging
     logger.debug(f"fetch_subreddit_posts /r/{subname}: status_code={r.status_code}, headers={dict(r.headers)}")
-    
-    try:
-        if distributed_rate_limiter:
-            distributed_rate_limiter.wait_if_needed()
-        else:
-            rate_limiter.wait_if_needed()
-    except Exception:
-        pass
     
     # Check for error status codes before raising
     if r.status_code == 429:
@@ -635,6 +636,15 @@ def fetch_post_comments(post_id: str, max_retries: int = 5):
     timeout = HTTP_REQUEST_TIMEOUT
     while True:
         attempt += 1
+        # Respect the distributed/local rate limiter BEFORE making the request
+        try:
+            if distributed_rate_limiter:
+                distributed_rate_limiter.wait_if_needed()
+            else:
+                rate_limiter.wait_if_needed()
+        except Exception:
+            pass
+
         try:
             r = httpx.get(url, headers=headers, timeout=timeout)
         except Exception as e:
@@ -645,15 +655,6 @@ def fetch_post_comments(post_id: str, max_retries: int = 5):
                 time.sleep(sleep_for)
                 continue
             raise
-
-        # Always sleep a bit to respect general API rate limiting
-        try:
-            if distributed_rate_limiter:
-                distributed_rate_limiter.wait_if_needed()
-            else:
-                rate_limiter.wait_if_needed()
-        except Exception:
-            pass
 
         # Handle 429 Too Many Requests specially
         if r.status_code == 429:
