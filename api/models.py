@@ -80,6 +80,7 @@ class Mention(Base):
     context_snippet = Column(Text, nullable=True)  # short excerpt from the comment around the mention
     __table_args__ = (
         UniqueConstraint('subreddit_id', 'comment_id', name='uq_mention_sub_comment'),
+        UniqueConstraint('subreddit_id', 'user_id', name='uq_mention_sub_user'),
     )
     comment = relationship('Comment', back_populates='mentions')
 
@@ -99,6 +100,41 @@ class Analytics(Base):
     # timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class SubredditScanConfig(Base):
+    """Configuration for which subreddits to actively scan for posts."""
+    __tablename__ = 'subreddit_scan_configs'
+    id = Column(Integer, primary_key=True)
+    # Subreddit name (normalized to lowercase)
+    subreddit_name = Column(String(255), unique=True, nullable=False, index=True)
+    # Comma-separated list of usernames to scan posts from (null/empty = all users)
+    allowed_users = Column(Text, nullable=True)
+    # Only scan NSFW posts
+    nsfw_only = Column(Boolean, nullable=False, default=True)
+    # Whether this config is active
+    active = Column(Boolean, nullable=False, default=True)
+    # timestamps
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class IgnoredSubreddit(Base):
+    """Subreddits to never record mentions for."""
+    __tablename__ = 'ignored_subreddits'
+    id = Column(Integer, primary_key=True)
+    subreddit_name = Column(String(255), unique=True, nullable=False, index=True)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class IgnoredUser(Base):
+    """Users whose mentions should not be recorded."""
+    __tablename__ = 'ignored_users'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(255), unique=True, nullable=False, index=True)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, server_default=func.now())
 
 
 # Configure relationships explicitly now that all classes are declared.

@@ -1,9 +1,18 @@
 #!/bin/sh
 set -e
-# Simple entrypoint that logs startup and shutdown messages with timestamps
+# Entrypoint that runs migrations (if API service) and starts the main process
 SERVICE_NAME=${SERVICE_NAME:-container}
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 echo "$(ts) [${SERVICE_NAME}] starting"
+
+# If this is the API container, run migrations first
+if [ "$SERVICE_NAME" = "api" ]; then
+    echo "$(ts) [${SERVICE_NAME}] running database migrations..."
+    python /app/scripts/run_migrations.py || {
+        echo "$(ts) [${SERVICE_NAME}] migration failed"
+        exit 1
+    }
+fi
 
 # Start the main process
 "$@" &

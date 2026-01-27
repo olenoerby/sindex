@@ -30,8 +30,37 @@ This document describes the DB schema, API routes, caching strategy, sequence di
   - `comment_id` FK -> comments.id
   - `post_id` FK -> posts.id
   - `timestamp` BIGINT INDEX
+  - `user_id` TEXT (username who made the mention)
+  - UNIQUE constraints: (subreddit_id, comment_id) AND (subreddit_id, user_id)
+- Table `subreddit_scan_configs` (controls which subreddits to scan):
+  - `id` PK
+  - `subreddit_name` TEXT UNIQUE (subreddit to scan)
+  - `allowed_users` TEXT NULL (comma-separated usernames, or NULL for all users)
+  - `nsfw_only` BOOLEAN (if TRUE, only process NSFW posts)
+  - `active` BOOLEAN (if FALSE, config is ignored)
+  - `created_at` TIMESTAMP
+- Table `ignored_subreddits` (mentions from these subreddits are not recorded):
+  - `id` PK
+  - `subreddit_name` TEXT UNIQUE
+  - `active` BOOLEAN
+  - `created_at` TIMESTAMP
+- Table `ignored_users` (mentions from these users are not recorded):
+  - `id` PK
+  - `username` TEXT UNIQUE
+  - `active` BOOLEAN
+  - `created_at` TIMESTAMP
 
 Indexes: add indexes on `reddit_post_id`, `reddit_comment_id`, `subreddits.name`, and timestamp fields used for filtering.
+
+**Configuration System**
+The scanner loads scan targets dynamically from `subreddit_scan_configs` table on each scan cycle. This allows runtime configuration changes without editing .env or restarting containers. Each scan config can specify:
+- Per-subreddit user filtering (scan posts only from specific users)
+- NSFW-only filtering (ignore non-NSFW posts)
+- Active/inactive toggle for temporary disabling
+
+Mentions are deduplicated at two levels:
+1. One mention per comment per subreddit (prevents duplicate extractions)
+2. One mention per user per subreddit globally (prevents spam from single user)
 
 **Backend API Routes** (FastAPI - read-only)
 - GET `/subreddits?page=&per_page=&sort=`: list subreddits with pagination; `sort` can be `mentions`, `subscribers`, `active_users`, `created_utc`.
