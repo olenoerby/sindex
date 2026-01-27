@@ -57,13 +57,19 @@ class Subreddit(Base):
     is_banned = Column(Boolean, default=False)
     not_found = Column(Boolean, default=False)
     last_checked = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    mentions = relationship('Mention', back_populates='subreddit')
+    # Retry/priority fields used when a fetch returned 429 Too Many Requests
+    retry_priority = Column(Integer, nullable=False, default=0)
+    next_retry_at = Column(DateTime, nullable=True)
+    # `mentions` relationship configured after `Mention` is defined to avoid
+    # ambiguity between multiple foreign keys referencing `subreddits.id`.
 
 
 class Mention(Base):
     __tablename__ = 'mentions'
     id = Column(Integer, primary_key=True)
     subreddit_id = Column(Integer, ForeignKey('subreddits.id'))
+    # the subreddit where the mention was observed (source subreddit)
+    source_subreddit_id = Column(Integer, ForeignKey('subreddits.id'), nullable=True)
     comment_id = Column(Integer, ForeignKey('comments.id'))
     # store user id (author_fullname or username) to de-duplicate mentions by user
     user_id = Column(String(255), nullable=True, index=True)
@@ -73,7 +79,6 @@ class Mention(Base):
         UniqueConstraint('subreddit_id', 'comment_id', name='uq_mention_sub_comment'),
         UniqueConstraint('subreddit_id', 'user_id', name='uq_mention_sub_user'),
     )
-    subreddit = relationship('Subreddit', back_populates='mentions')
     comment = relationship('Comment', back_populates='mentions')
 
 
@@ -85,6 +90,30 @@ class Analytics(Base):
     total_posts = Column(Integer, nullable=False, default=0)
     total_comments = Column(Integer, nullable=False, default=0)
     total_mentions = Column(Integer, nullable=False, default=0)
+    # scan tracking
+    last_scan_started = Column(DateTime, nullable=True)
+    last_scan_duration = Column(Integer, nullable=True)  # seconds
+    last_scan_new_mentions = Column(Integer, nullable=True)
     # timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# Configure relationships explicitly now that all classes are declared.
+from sqlalchemy.orm import relationship as _relationship
+
+# Link mentions -> subreddit using the explicit column to disambiguate
+Subreddit.mentions = _relationship('Mention', back_populates='subreddit', foreign_keys=[None])
+# Now set Mention.subreddit and Mention.source_subreddit properly
+# We assign using string-based relationships but reference actual FK columns
+try:
+    # replace placeholder with proper column refs if available
+    Subreddit.mentions = _relationship('Mention', back_populates='subreddit', foreign_keys=[globals()['Mention'].subreddit_id])
+    globals()['Mention'].subreddit = _relationship('Subreddit', back_populates='mentions', foreign_keys=[globals()['Mention'].subreddit_id])
+    globals()['Mention'].source_subreddit = _relationship('Subreddit', foreign_keys=[globals()['Mention'].source_subreddit_id])
+except Exception:
+    # If something goes wrong during import-time relationship wiring, fallback
+    # to string-based relationships so SQLAlchemy can attempt configuration later.
+    Subreddit.mentions = _relationship('Mention', back_populates='subreddit', foreign_keys='Mention.subreddit_id')
+    globals()['Mention'].subreddit = _relationship('Subreddit', back_populates='mentions', foreign_keys='Mention.subreddit_id')
+    globals()['Mention'].source_subreddit = _relationship('Subreddit', foreign_keys='Mention.source_subreddit_id')

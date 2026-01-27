@@ -21,142 +21,93 @@ sh = logging.StreamHandler()
 sh.setFormatter(fmt)
 api_logger.addHandler(sh)
 
+# Configuration and DB
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple")
 META_CACHE_DAYS = int(os.getenv('META_CACHE_DAYS', '7'))
 API_RATE_DELAY = float(os.getenv('API_RATE_DELAY', '6.5'))
+
+from sqlalchemy import create_engine
+engine = create_engine(DATABASE_URL, echo=False, future=True)
+
+# FastAPI app
+app = FastAPI(title="Pineapple Index API")
 
 
 def fetch_sub_about(name: str):
     url = f"https://www.reddit.com/r/{name}/about.json"
     headers = {"User-Agent": "PineappleIndexAPI/0.1"}
     r = httpx.get(url, headers=headers)
-    time_sleep = API_RATE_DELAY
     try:
-        # keep a small delay to avoid hammering Reddit when API is used interactively
         import time as _time
-        _time.sleep(time_sleep)
+        _time.sleep(API_RATE_DELAY)
     except Exception:
         pass
     return r
+@app.post("/subreddits/{name}/refresh")
+def refresh_subreddit(name: str, api_key: Optional[str] = Query(None)):
+    """Enqueue a background job to refresh subreddit metadata.
 
-engine = create_engine(DATABASE_URL, echo=False, future=True)
+    Requires `X-API-Key` header or `api_key` query param when `API_KEY` is set in the environment.
+    Enforces a per-subreddit cooldown and a simple global rate limit using Redis.
+    Returns 202 Accepted with job info when queued.
+    """
+    # API key check: allow requests when no API_KEY configured
+    ENV_API_KEY = os.getenv('API_KEY')
+    header_key = None
+    try:
+        # FastAPI: Query params come via function args; header check via environ fallback
+        from fastapi import Request
+        # attempt to read header if available (not ideal here, but Query fallback provided)
+    except Exception:
+        pass
 
-app = FastAPI(title="Pineapple Index API")
+    provided_key = api_key or os.getenv('HTTP_X_API_KEY') or ''
+    # If API key is configured, require it
+    if ENV_API_KEY:
+        if not provided_key or provided_key != ENV_API_KEY:
+            raise HTTPException(status_code=403, detail='Invalid or missing API key')
 
+    lname = name.lower().strip()
+    # cooldown and rate limiting
+    REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+    from redis import Redis
+    redis = Redis.from_url(REDIS_URL)
+    COOLDOWN = int(os.getenv('REFRESH_COOLDOWN_SECONDS', '900'))
+    GLOBAL_LIMIT = int(os.getenv('REFRESH_GLOBAL_PER_MIN', '60'))
 
-@app.get("/", response_class=HTMLResponse)
-def home():
-        html = '''<!doctype html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Pineapple Index — Subreddits</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-        body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:20px}
-        input,select{margin-right:8px;padding:6px}
-        table{width:100%;border-collapse:collapse;margin-top:12px}
-        th,td{padding:8px;border-bottom:1px solid #e6e6e6;text-align:left}
-        th{cursor:pointer}
-        tr:hover{background:#fafafa}
-        .muted{color:#666;font-size:0.9em}
-    </style>
-</head>
-<body>
-    <h1>Pineapple Index — Subreddits</h1>
-    <div>
-        <input id="q" placeholder="Search name or description" style="width:36%" />
-        <select id="sort">
-            <option value="mentions">Top mentions</option>
-            <option value="subscribers">Subscribers</option>
-            <option value="active_users">Active users</option>
-            <option value="created_utc">Created</option>
-        </select>
-        <label>Min mentions <input id="minMentions" type="number" value="0" style="width:90px"/></label>
-        <label style="margin-left:8px"><input id="showBanned" type="checkbox"/> Show banned</label>
-        <button id="reload">Reload</button>
-    </div>
+    with Session(engine) as session:
+        s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
+        if s and s.last_checked:
+            delta = (datetime.utcnow() - s.last_checked).total_seconds()
+            if delta < COOLDOWN:
+                retry_after = int(COOLDOWN - delta)
+                raise HTTPException(status_code=429, detail=f'Subreddit recently refreshed; retry after {retry_after} seconds')
 
-    <div id="count" class="muted"></div>
-    <table id="tbl">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Mentions</th>
-                <th>Subscribers</th>
-                <th>Active Users</th>
-                <th>Last Checked</th>
-                <th>Description</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+        # simple global rate limit per minute
+        try:
+            key = 'pineapple:refresh:global'
+            cnt = redis.incr(key)
+            if cnt == 1:
+                redis.expire(key, 60)
+            if cnt > GLOBAL_LIMIT:
+                raise HTTPException(status_code=429, detail='Global refresh rate limit exceeded')
+        except Exception:
+            # if Redis unavailable, continue but log
+            api_logger.warning('Redis unavailable for rate limiting; proceeding')
 
-    <script>
-        let data = [];
-        async function load(){
-            document.getElementById('count').textContent = 'Loading...';
-            try{
-                const per = 1000;
-                const res = await fetch(`/subreddits?per_page=${per}&sort=mentions`);
-                data = await res.json();
-                render();
-            }catch(e){
-                document.getElementById('count').textContent = 'Load failed: ' + e;
-            }
-        }
-
-        function render(){
-            const q = document.getElementById('q').value.toLowerCase().trim();
-            const minM = Number(document.getElementById('minMentions').value || 0);
-            const showB = document.getElementById('showBanned').checked;
-            const sort = document.getElementById('sort').value;
-            let list = data.slice();
-            if(q){
-                list = list.filter(s => (s.name||'').toLowerCase().includes(q) || (s.description||'').toLowerCase().includes(q));
-            }
-            if(!showB){
-                list = list.filter(s => !s.is_banned);
-            }
-            list = list.filter(s => (s.mentions||0) >= minM);
-
-            list.sort((a,b)=>{
-                const key = sort;
-                const va = (a[key]===null||a[key]===undefined)?0:a[key];
-                const vb = (b[key]===null||b[key]===undefined)?0:b[key];
-                return vb - va;
-            });
-
-            const tbody = document.querySelector('#tbl tbody');
-            tbody.innerHTML = '';
-            for(const s of list){
-                const tr = document.createElement('tr');
-                const nameTd = document.createElement('td');
-                const a = document.createElement('a');
-                a.href = `/subreddits/${encodeURIComponent(s.name)}`;
-                a.textContent = s.name;
-                nameTd.appendChild(a);
-                tr.appendChild(nameTd);
-
-                const mk = (v)=> v===null||v===undefined? '—': v.toString();
-                tr.innerHTML += `<td>${mk(s.mentions)}</td><td>${mk(s.subscribers)}</td><td>${mk(s.active_users)}</td><td>${s.last_checked? new Date(s.last_checked).toLocaleString() : '—'}</td><td class="muted">${(s.description||'').slice(0,200)}</td>`;
-                tbody.appendChild(tr);
-            }
-            document.getElementById('count').textContent = `${list.length} shown (from ${data.length} fetched)`;
-        }
-
-        document.getElementById('q').addEventListener('input', render);
-        document.getElementById('sort').addEventListener('change', render);
-        document.getElementById('minMentions').addEventListener('input', render);
-        document.getElementById('showBanned').addEventListener('change', render);
-        document.getElementById('reload').addEventListener('click', load);
-
-        load();
-    </script>
-</body>
-</html>
-'''
-        return HTMLResponse(html)
+        # enqueue job using RQ
+        try:
+            from rq import Queue
+            from redis import Redis as _Redis
+            REDIS = _Redis.from_url(REDIS_URL)
+            q = Queue(connection=REDIS)
+            # reference the callable in api.tasks
+            import api.tasks as tasks
+            job = q.enqueue(tasks.refresh_subreddit_job, lname, job_timeout=300)
+            return {"ok": True, "job_id": job.id, "message": "Refresh enqueued"}, 202
+        except Exception as e:
+            api_logger.exception('Failed to enqueue refresh job')
+            raise HTTPException(status_code=500, detail='Failed to enqueue refresh job')
 
 
 
@@ -224,6 +175,7 @@ def list_subreddits(
     show_banned: Optional[bool] = None,
     show_nsfw: Optional[bool] = None,
     show_non_nsfw: Optional[bool] = None,
+    first_mentioned_days: Optional[int] = None,
 ):
     # enforce sensible limits to avoid huge responses
     max_per = 500
@@ -300,10 +252,20 @@ def list_subreddits(
             except Exception:
                 subq = subq.filter(models.Subreddit.is_banned == True)
         # Apply mentions filters via HAVING (since mentions is an aggregate)
+        # Always exclude subreddits with 0 mentions (minimum is 1)
+        subq = subq.having(func.count(models.Mention.id) >= 1)
         if min_mentions is not None:
             subq = subq.having(func.count(models.Mention.id) >= int(min_mentions))
         if max_mentions is not None:
             subq = subq.having(func.count(models.Mention.id) <= int(max_mentions))
+        
+        # Apply first_mentioned date filter
+        if first_mentioned_days is not None:
+            from datetime import timezone
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+            cutoff_ts = now_ts - (int(first_mentioned_days) * 24 * 60 * 60)
+            subq = subq.filter(models.Subreddit.first_mentioned != None)
+            subq = subq.filter(models.Subreddit.first_mentioned >= cutoff_ts)
 
         # Compute total matching rows before applying ordering/limit
         try:
@@ -473,7 +435,10 @@ def stats():
                     "total_posts": int(analytics.total_posts or 0),
                     "total_comments": int(analytics.total_comments or 0),
                     "total_mentions": int(analytics.total_mentions or 0),
-                    "analytics_updated_at": getattr(analytics, 'updated_at', None)
+                    "analytics_updated_at": getattr(analytics, 'updated_at', None),
+                    "last_scan_started": getattr(analytics, 'last_scan_started', None),
+                    "last_scan_duration": getattr(analytics, 'last_scan_duration', None),
+                    "last_scan_new_mentions": getattr(analytics, 'last_scan_new_mentions', None)
                 })
             # ensure we always include current last_scanned
             last_scanned = session.query(func.max(models.Subreddit.last_checked)).scalar()
@@ -561,6 +526,89 @@ def get_subreddit(name: str):
         return {"name": s.name, "created_utc": s.created_utc, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "last_checked": s.last_checked, "mentions": mentions}
 
 
+    @app.post("/subreddits/{name}/refresh")
+    def refresh_subreddit(name: str):
+        """Fetch Reddit about.json for a single subreddit, create the DB row if missing,
+        update stored metadata, and return the updated subreddit record.
+        """
+        lname = name.lower().strip()
+        with Session(engine) as session:
+            s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
+            if not s:
+                s = models.Subreddit(name=lname)
+                session.add(s)
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
+            try:
+                r = fetch_sub_about(lname)
+                if r.status_code == 200:
+                    payload = r.json()
+                    if isinstance(payload, dict) and payload.get('reason'):
+                        s.is_banned = True
+                        s.ban_reason = str(payload.get('reason'))
+                    data = payload.get('data', {}) if isinstance(payload, dict) else {}
+
+                    def safe_int(v):
+                        try:
+                            return int(v) if v is not None else None
+                        except Exception:
+                            return None
+
+                    s.display_name = data.get('display_name') or s.display_name
+                    s.display_name_prefixed = data.get('display_name_prefixed') or s.display_name_prefixed
+                    s.title = data.get('title') or s.title
+                    created = safe_int(data.get('created_utc'))
+                    if created:
+                        s.created_utc = created
+                    subs = safe_int(data.get('subscribers'))
+                    if subs is not None:
+                        s.subscribers = subs
+                    active = safe_int(data.get('accounts_active') or data.get('active_user_count') or data.get('active_accounts'))
+                    if active is not None:
+                        s.active_users = active
+                    public_desc = data.get('public_description')
+                    if public_desc:
+                        s.description = public_desc
+                        try:
+                            s.public_description_html = data.get('public_description_html') or s.public_description_html
+                        except Exception:
+                            pass
+                    try:
+                        ov = data.get('over18') if 'over18' in data else data.get('over_18')
+                        if ov is not None:
+                            s.over18 = bool(ov)
+                    except Exception:
+                        pass
+                    s.is_banned = s.is_banned or False
+                    s.not_found = False
+                elif r.status_code in (403, 404):
+                    if r.status_code == 403:
+                        s.is_banned = True
+                        s.not_found = False
+                    else:
+                        s.not_found = True
+                        s.is_banned = False
+                    try:
+                        payload = r.json()
+                        if isinstance(payload, dict) and payload.get('reason'):
+                            s.ban_reason = str(payload.get('reason'))
+                    except Exception:
+                        pass
+                else:
+                    api_logger.debug(f"/r/{s.name} metadata fetch returned status {r.status_code}")
+
+                s.last_checked = datetime.utcnow()
+                session.add(s)
+                session.commit()
+                mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
+                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "not_found": s.not_found, "ban_reason": s.ban_reason, "last_checked": s.last_checked, "mentions": mentions}}
+            except Exception:
+                session.rollback()
+                raise HTTPException(status_code=500, detail="Failed to refresh subreddit metadata")
+
+
 @app.get("/mentions")
 def list_mentions(page: int = 1, per_page: int = 50, subreddit: Optional[str] = None):
     offset = (page - 1) * per_page
@@ -616,7 +664,8 @@ def stats_top_unique_posts(limit: int = 20):
         rows = session.query(
             models.Post.reddit_post_id,
             models.Post.title,
-            func.count(func.distinct(models.Mention.subreddit_id)).label('unique_subreddits')
+            func.count(func.distinct(models.Mention.subreddit_id)).label('unique_subreddits'),
+            models.Post.url,
         ).join(models.Mention, models.Mention.post_id == models.Post.id, isouter=True)
         rows = rows.group_by(models.Post.id).order_by(desc('unique_subreddits')).limit(limit).all()
         out = []
@@ -624,7 +673,8 @@ def stats_top_unique_posts(limit: int = 20):
             out.append({
                 'reddit_post_id': r[0],
                 'title': r[1],
-                'unique_subreddits': int(r[2] or 0)
+                'unique_subreddits': int(r[2] or 0),
+                'url': (r[3] or '')
             })
         return {"items": out}
 
