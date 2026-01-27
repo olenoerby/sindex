@@ -439,6 +439,13 @@
         const displayText = savedNum >= 999999 ? 'Window: All time' : `Window: ${savedNum} days`;
         document.getElementById('window').textContent = displayText;
       }
+    } else {
+      // No saved cookie: initialize with default 30 days
+      currentDays = 30;
+      const defaultBtn = buttons.find(b => Number(b.dataset.days || 30) === 30);
+      if(defaultBtn){
+        buttons.forEach(b => b.classList.toggle('active', b === defaultBtn));
+      }
     }
     bindControls();
     
