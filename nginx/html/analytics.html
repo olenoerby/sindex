@@ -24,11 +24,11 @@
       <div class="meta">
         <span class="pill" id="lastScanned">Last DB run: —</span>
         <span class="pill" id="lastPolled">Last polled: —</span>
-        <span class="pill" id="window">Window: 90 days</span>
+        <span class="pill" id="window">Window: 30 days</span>
       </div>
       <div class="controls">
         <span class="muted">Timeline window:</span>
-        <button class="btn active" data-days="30">30d</button>
+        <button class="btn" data-days="30">30d</button>
         <button class="btn" data-days="90">90d</button>
         <button class="btn" data-days="180">180d</button>
         <button class="btn" data-days="365">1y</button>
@@ -38,22 +38,22 @@
 
     <section class="grid" id="statGrid">
       <div class="card">
-        <h3>Total mentions</h3>
+        <h3 id="totalMentionsTitle">Total mentions</h3>
         <div class="stat-value" id="totalMentions">—</div>
         <div class="stat-sub" id="mentionsPerDay">—</div>
       </div>
       <div class="card">
-        <h3>Total subreddits</h3>
+        <h3 id="totalSubsTitle">Total subreddits</h3>
         <div class="stat-value" id="totalSubs">—</div>
         <div class="stat-sub">All tracked subs, including zero-mention.</div>
       </div>
       <div class="card">
-        <h3>Total posts</h3>
+        <h3 id="totalPostsTitle">Total posts</h3>
         <div class="stat-value" id="totalPosts">—</div>
         <div class="stat-sub" id="mentionsPerPost">—</div>
       </div>
       <div class="card">
-        <h3>Total comments</h3>
+        <h3 id="totalCommentsTitle">Total comments</h3>
         <div class="stat-value" id="totalComments">—</div>
         <div class="stat-sub" id="commentsPerPost">—</div>
       </div>
@@ -63,17 +63,17 @@
         <div class="stat-sub" id="lastScanMeta">—</div>
       </div>
       <div class="card">
-        <h3>Peak mention day</h3>
+        <h3 id="peakMentionTitle">Peak mention day</h3>
         <div class="stat-value" id="peakDay">—</div>
         <div class="stat-sub" id="peakValue">—</div>
       </div>
       <div class="card">
-        <h3>New subs (30d)</h3>
+        <h3 id="newSubsTitle">New subs</h3>
         <div class="stat-value" id="newSubs30">—</div>
-        <div class="stat-sub">First-time mentions in the last 30 days.</div>
+        <div class="stat-sub" id="newSubsDesc">First-time mentions.</div>
       </div>
       <div class="card card-wide">
-        <h3>Top commenter</h3>
+        <h3 id="topCommenterTitle">Top commenter</h3>
         <div class="stat-value" id="topCommenterName">—</div>
         <div class="stat-sub" id="topCommenterCount">—</div>
       </div>
@@ -133,9 +133,26 @@
   </div>
 
   <script>
+    // Age gate check - require sindex_age_confirmed cookie
+    function getCookie(name){
+      const nameEQ = name + '=';
+      const cookies = document.cookie.split(';');
+      for(let c of cookies){
+        c = c.trim();
+        if(c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length);
+      }
+      return null;
+    }
+    
+    const ageConfirmed = getCookie('sindex_age_confirmed');
+    if(!ageConfirmed || ageConfirmed !== '1'){
+      window.location.href = '/';
+    }
+    
     // Improved analytics dashboard with richer stats and a wider, legible chart.
-    const buttons = Array.from(document.querySelectorAll('.btn'));
-    let currentDays = 90;
+    // Select only the date range buttons, not the refresh button
+    const buttons = Array.from(document.querySelectorAll('.controls .btn'));
+    let currentDays = 30;  // Default to 30 days
     let timelineChart, subsChart;
     const textColor = '#d9e4f5';
 
@@ -155,25 +172,57 @@
       date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
       document.cookie = `${name}=${value};expires=${date.toUTCString()};path=/`;
     }
-    function getCookie(name){
-      const nameEQ = name + '=';
-      const cookies = document.cookie.split(';');
-      for(let c of cookies){
-        c = c.trim();
-        if(c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length);
+    // getCookie function already defined above for age gate check
+
+    // Initialize currentDays from cookie or default to 30
+    function initializeDateRange(){
+      const savedDays = getCookie('sindex_analytics_date_range');
+      if(savedDays && !isNaN(savedDays)){
+        currentDays = Number(savedDays);
+      } else {
+        currentDays = 30;
+        setCookie('sindex_analytics_date_range', 30, 365);
       }
-      return null;
+      
+      // Update button states based on currentDays
+      buttons.forEach(btn => {
+        const btnDays = Number(btn.dataset.days || 90);
+        if(btnDays === currentDays){
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      
+      // Update window display
+      const displayText = currentDays >= 999999 ? 'Window: All time' : `Window: ${currentDays} days`;
+      document.getElementById('window').textContent = displayText;
+      updateCardTitles();
+    }
+
+    // Update card titles to show the selected date range
+    function updateCardTitles(){
+      const rangeText = currentDays >= 999999 ? 'All time' : `${currentDays}d`;
+      document.getElementById('totalMentionsTitle').textContent = `Total mentions (${rangeText})`;
+      document.getElementById('totalSubsTitle').textContent = `Total subreddits (${rangeText})`;
+      document.getElementById('totalPostsTitle').textContent = `Total posts (${rangeText})`;
+      document.getElementById('totalCommentsTitle').textContent = `Total comments (${rangeText})`;
+      document.getElementById('peakMentionTitle').textContent = `Peak mention day (${rangeText})`;
+      document.getElementById('newSubsTitle').textContent = `New subs (${rangeText})`;
+      document.getElementById('newSubsDesc').textContent = `First-time mentions in the last ${currentDays >= 999999 ? 'all days' : currentDays + ' days'}.`;
+      document.getElementById('topCommenterTitle').textContent = `Top commenter (${rangeText})`;
     }
 
     function bindControls(){
       buttons.forEach(btn => {
         btn.addEventListener('click', () => {
-          const days = Number(btn.dataset.days || 90);
+          const days = Number(btn.dataset.days);
           currentDays = days;
           buttons.forEach(b => b.classList.toggle('active', b === btn));
           const displayText = days >= 999999 ? 'Window: All time' : `Window: ${days} days`;
           document.getElementById('window').textContent = displayText;
-          setCookie('analyticsDateRange', days, 365);
+          updateCardTitles();
+          setCookie('sindex_analytics_date_range', days, 365);
           fetchStats();
           fetchDaily(days);
           fetchTopBlocks();
@@ -308,9 +357,11 @@
         const totalPosts = posts.reduce((a,b) => a+b, 0);
         const totalComments = comments.reduce((a,b) => a+b, 0);
         const avgMentions = mentions.length ? totalMentions / mentions.length : 0;
-        const last7 = mentions.slice(-7);
+        // Show average for last 7 days within the selected range (or all days if range < 7d)
+        const daysToShow = Math.min(7, mentions.length);
+        const last7 = mentions.slice(-daysToShow);
         const avg7 = last7.length ? last7.reduce((a,b)=>a+b,0) / last7.length : 0;
-        document.getElementById('mentionsPerDay').textContent = `${fmt(avgMentions)} avg/day · ${fmt(avg7)} last 7d`;
+        document.getElementById('mentionsPerDay').textContent = `${fmt(avgMentions)} avg/day · ${fmt(avg7)} last ${daysToShow}d`;
         document.getElementById('mentionsPerPost').textContent = totalPosts ? `${fmt(totalMentions / totalPosts)} mentions per post` : '—';
         document.getElementById('commentsPerPost').textContent = totalPosts ? `${fmt(totalComments / totalPosts)} comments per post` : '—';
 
@@ -320,16 +371,16 @@
         document.getElementById('peakDay').textContent = labels[peakIdx] || '—';
         document.getElementById('peakValue').textContent = `${fmt(peakVal)} mentions on peak day`;
 
-        // New subs rolling window (30d)
-        const last30Subs = newSubs.slice(-30);
-        const sum30Subs = last30Subs.reduce((a,b)=>a+b,0);
-        document.getElementById('newSubs30').textContent = fmt(sum30Subs);
-
+        // New subs within the selected date range
+        const newSubsInRange = newSubs.slice(-currentDays) || newSubs;
+        const sumNewSubs = newSubsInRange.reduce((a,b)=>a+b,0);
+        document.getElementById('newSubs30').textContent = fmt(sumNewSubs);
+        
         // Summaries
         const lastLabel = labels[labels.length-1];
         document.getElementById('timelineSummary').textContent = `${fmt(totalMentions)} mentions, ${fmt(totalPosts)} posts, ${fmt(totalComments)} comments across ${labels.length} days`;
         const peakSubs = Math.max(...newSubs, 0);
-        document.getElementById('subsSummary').textContent = `${fmt(sum30Subs)} new subs (last 30d) · peak ${fmt(peakSubs)} in a day`;
+        document.getElementById('subsSummary').textContent = `${fmt(sumNewSubs)} new subs (${currentDays >= 999999 ? 'all time' : currentDays + 'd'}) · peak ${fmt(peakSubs)} in a day`;
       } catch(err) {
         console.warn('daily failed', err);
       }
@@ -428,37 +479,21 @@
       }
     }
 
-    // Kickoff
-    const savedDays = getCookie('analyticsDateRange');
-    if(savedDays){
-      const savedNum = Number(savedDays);
-      const btn = buttons.find(b => Number(b.dataset.days || 90) === savedNum);
-      if(btn){
-        currentDays = savedNum;
-        buttons.forEach(b => b.classList.toggle('active', b === btn));
-        const displayText = savedNum >= 999999 ? 'Window: All time' : `Window: ${savedNum} days`;
-        document.getElementById('window').textContent = displayText;
-      }
-    } else {
-      // No saved cookie: initialize with default 30 days
-      currentDays = 30;
-      const defaultBtn = buttons.find(b => Number(b.dataset.days || 30) === 30);
-      if(defaultBtn){
-        buttons.forEach(b => b.classList.toggle('active', b === defaultBtn));
-      }
-    }
     bindControls();
+    initializeDateRange();
     
-    // Manual refresh button
+    // Manual refresh button - preserves current date range selection
     document.getElementById('refreshBtn').addEventListener('click', async () => {
       const btn = document.getElementById('refreshBtn');
       btn.disabled = true;
       btn.style.opacity = '0.6';
+      
       await Promise.all([
         fetchStats(),
         fetchDaily(currentDays),
         fetchTopBlocks()
       ]);
+      
       btn.disabled = false;
       btn.style.opacity = '1';
     });

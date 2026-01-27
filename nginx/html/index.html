@@ -221,13 +221,13 @@
           currentPage: currentPage || 1,
           perPage: perPage || 50
         };
-        setCookie('pineapple_prefs', encodeURIComponent(JSON.stringify(p)), 365);
+        setCookie('sindex_prefs', encodeURIComponent(JSON.stringify(p)), 365);
       }catch(e){ /* ignore */ }
     }
 
     function loadPrefs(){
       try{
-        const c = getCookie('pineapple_prefs');
+        const c = getCookie('sindex_prefs');
         if(!c) return;
         const p = JSON.parse(decodeURIComponent(c));
         prefs = p || {};
@@ -1059,7 +1059,7 @@
     // Age-gate: require user confirmation once per browser (saved via cookie)
     function showAgeGateThenLoad(){
       try{
-        const confirmed = getCookie('pineapple_age_confirmed');
+        const confirmed = getCookie('sindex_age_confirmed');
         if(confirmed === '1'){
           loadPage(currentPage);
           return;
@@ -1084,7 +1084,7 @@
       document.body.style.overflow = 'hidden';
 
       confirmBtn.addEventListener('click', ()=>{
-        try{ setCookie('pineapple_age_confirmed','1',365); }catch(e){}
+        try{ setCookie('sindex_age_confirmed','1',365); }catch(e){}
         overlay.remove();
         document.body.style.overflow = '';
         loadPage(currentPage);
