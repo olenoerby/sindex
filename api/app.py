@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta
+import time
 import httpx
 import os
 import logging
@@ -12,11 +13,12 @@ from sqlalchemy import create_engine, select, desc, func, text, literal_column
 from sqlalchemy.orm import Session
 from . import models
 
-# Logging setup: use Docker/container logs (stdout)
+# Logging setup: use Docker/container logs (stdout) with ISO 8601 format (UTC)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 api_logger = logging.getLogger('api')
 api_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-fmt = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+fmt = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
+fmt.converter = time.gmtime  # Use UTC instead of local time
 sh = logging.StreamHandler()
 sh.setFormatter(fmt)
 api_logger.addHandler(sh)
@@ -185,7 +187,7 @@ def list_subreddits(
     offset = (page - 1) * per_page
     
     # Debug logging for filter parameters
-    api_logger.info(f"Filter params: show_available={show_available}, show_banned={show_banned}, show_pending={show_pending}, show_nsfw={show_nsfw}, show_non_nsfw={show_non_nsfw}")
+    api_logger.debug(f"Filter params: show_available={show_available}, show_banned={show_banned}, show_pending={show_pending}, show_nsfw={show_nsfw}, show_non_nsfw={show_non_nsfw}")
     
     # validate sort and sort_dir here to avoid FastAPI raising a 422
     allowed_sorts = {'mentions','subscribers','active_users','created_utc','first_mentioned','name','display_name_prefixed','title','description','random'}

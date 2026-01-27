@@ -12,6 +12,11 @@ from sqlalchemy.orm import Session
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import threading
+try:
+    from redis import Redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
 
 # Ensure the project root is on sys.path so `import api` works when running
 # inside the scanner container. Previously we appended the `api` folder
@@ -31,8 +36,9 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 
 logger = logging.getLogger('scanner')
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-# Use stdout/stderr (container logs)
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+# Use stdout/stderr (container logs) with ISO 8601 timestamp format (UTC)
+formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
+formatter.converter = time.gmtime  # Use UTC instead of local time
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 if not logger.handlers:
@@ -73,6 +79,35 @@ TEST_POST_IDS = [p.strip() for p in os.getenv('TEST_POST_IDS', '').split(',') if
 
 engine = create_engine(DATABASE_URL, future=True)
 
+# Redis task queue for async metadata fetches
+_redis_client = None
+def get_redis_client():
+    """Lazy-load Redis client for task queueing."""
+    global _redis_client
+    if _redis_client is None and REDIS_AVAILABLE:
+        try:
+            redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+            _redis_client = Redis.from_url(redis_url)
+            _redis_client.ping()  # test connection
+            logger.info("Redis connected for task queueing")
+        except Exception as e:
+            logger.warning(f"Redis not available for task queueing: {e}")
+            _redis_client = None
+    return _redis_client
+
+def queue_metadata_refresh(subreddit_name: str):
+    """Queue a subreddit metadata refresh task to Redis for async processing."""
+    try:
+        redis_client = get_redis_client()
+        if redis_client:
+            # Push to a simple queue that the redis_worker can consume
+            redis_client.lpush('metadata_refresh_queue', subreddit_name)
+            logger.debug(f"Queued metadata refresh for /r/{subreddit_name} to Redis")
+            return True
+    except Exception as e:
+        logger.debug(f"Failed to queue metadata refresh: {e}")
+    return False
+
 
 class RateLimiter:
     """Thread-safe rolling window rate limiter for Reddit API calls.
@@ -100,7 +135,7 @@ class RateLimiter:
                 time_since_last = now - self.last_call_time
                 if time_since_last < self.min_delay:
                     sleep_time = self.min_delay - time_since_last
-                    logger.info(f"Enforcing min API delay: sleeping {sleep_time:.2f}s (min_delay={self.min_delay}s)")
+                    logger.info(f"Enforcing min API delay: {time_since_last:.2f}s elapsed, sleeping {sleep_time:.2f}s more (total min: {self.min_delay}s)")
                     time.sleep(sleep_time)
                     now = time.time()
             
@@ -471,6 +506,24 @@ def increment_analytics(session: Session, posts: int = 0, comments: int = 0, sub
             session.rollback()
 
 
+def sync_analytics_counts(session: Session):
+    """Sync analytics table with actual database counts."""
+    try:
+        a = get_or_create_analytics(session)
+        if a:
+            # Update all counts with actual DB totals
+            a.total_subreddits = int(session.query(func.count(models.Subreddit.id)).scalar() or 0)
+            a.total_mentions = int(session.query(func.count(models.Mention.id)).scalar() or 0)
+            a.total_posts = int(session.query(func.count(models.Post.id)).scalar() or 0)
+            a.total_comments = int(session.query(func.count(models.Comment.id)).scalar() or 0)
+            session.add(a)
+            session.commit()
+            logger.debug(f"Analytics synced: subreddits={a.total_subreddits}, mentions={a.total_mentions}, posts={a.total_posts}, comments={a.total_comments}")
+    except Exception:
+        logger.exception('Failed to sync analytics counts')
+        session.rollback()
+
+
 def record_scan_completion(session: Session, scan_start_time: float, new_mentions: int):
     """Record scan completion metrics in analytics table."""
     try:
@@ -482,6 +535,8 @@ def record_scan_completion(session: Session, scan_start_time: float, new_mention
             session.add(a)
             session.commit()
             logger.info(f"Scan completed: duration={scan_duration}s, new_mentions={new_mentions}")
+            # Sync all counts with actual DB totals
+            sync_analytics_counts(session)
     except Exception:
         logger.exception('Failed to record scan completion')
         session.rollback()
@@ -715,9 +770,19 @@ def apply_schema_migrations():
             except Exception:
                 # Older Postgres versions or permission errors may raise; ignore
                 pass
-            # Create index to speed up lookups
+            # Create indexes to speed up lookups
             try:
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mentions_source_subreddit_id ON mentions(source_subreddit_id)"))
+            except Exception:
+                pass
+            # Index for duplicate user mention checks (subreddit_id, user_id)
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mentions_subreddit_user ON mentions(subreddit_id, user_id) WHERE user_id IS NOT NULL"))
+            except Exception:
+                pass
+            # Index for idle refresh queries (last_checked, mentions DESC)
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_subreddit_idle ON subreddits(last_checked, mentions DESC)"))
             except Exception:
                 pass
             # Add scan tracking columns to analytics table
@@ -1015,19 +1080,16 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 sub = models.Subreddit(name=sname)
                 session.add(sub)
                 session.commit()
-                logger.info(f"New subreddit discovered: /r/{sname}")
+                logger.debug(f"New subreddit discovered: /r/{sname}")
                 try:
                     increment_analytics(session, subreddits=1)
                 except Exception:
                     logger.debug('Failed to increment analytics for new subreddit')
-                # mark for metadata fetch later
+                # mark for async metadata fetch
                 discovered.add(sname)
             else:
-                # Log existence so operator sees when we encounter already-known subreddits
-                try:
-                    logger.info(f"Existing subreddit encountered: /r/{sname}")
-                except Exception:
-                    logger.debug(f"Encountered /r/{sname} (logging failed)")
+                # Log at debug level for already-known subreddits to reduce spam
+                logger.debug(f"Subreddit encountered: /r/{sname}")
                 # Always refresh metadata on discovery (schedule for immediate update)
                 try:
                     discovered.add(sname)
@@ -1063,10 +1125,20 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
             # Check both: same comment shouldn't mention same subreddit twice
             # AND same user shouldn't mention same subreddit more than once in entire DB
             try:
-                comment_mention_exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
-                user_mention_exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, user_id=cm.user_id).first() if cm.user_id else None
+                # Combine both checks into a single query for efficiency
+                existing_mention = None
+                if cm.user_id:
+                    # Check both comment and user constraints in one query
+                    existing_mention = session.query(models.Mention).filter(
+                        (models.Mention.subreddit_id == sub.id) & (
+                            (models.Mention.comment_id == cm.id) | (models.Mention.user_id == cm.user_id)
+                        )
+                    ).first()
+                else:
+                    # Only check comment constraint if no user_id
+                    existing_mention = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
                 
-                if not comment_mention_exists and not user_mention_exists:
+                if not existing_mention:
                     mention = models.Mention(
                         subreddit_id=sub.id,
                         comment_id=cm.id,
@@ -1079,16 +1151,13 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                     )
                     session.add(mention)
                     session.commit()
-                    logger.info(f"Inserted mention: /r/{sname} by {cm.user_id} in comment {cm.reddit_comment_id}")
+                    logger.debug(f"Inserted mention: /r/{sname} by {cm.user_id} in comment {cm.reddit_comment_id}")
                     try:
                         increment_analytics(session, mentions=1)
                     except Exception:
                         logger.debug('Failed to increment analytics for mention')
                 else:
-                    if comment_mention_exists:
-                        logger.debug(f"Skipped duplicate mention in same comment: /r/{sname} comment {cm.reddit_comment_id}")
-                    if user_mention_exists:
-                        logger.debug(f"Skipped mention (user already mentioned): user {cm.user_id} already mentioned /r/{sname}")
+                    logger.debug(f"Skipped duplicate mention: /r/{sname} comment {cm.reddit_comment_id}")
             except Exception as e:
                 session.rollback()
                 logger.error(f"Error inserting mention for /r/{sname}: {e}")
@@ -1151,10 +1220,18 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 # Check both: same comment shouldn't mention same subreddit twice
                 # AND same user shouldn't mention same subreddit more than once in entire DB
                 try:
-                    comment_mention_exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
-                    user_mention_exists = session.query(models.Mention).filter_by(subreddit_id=sub.id, user_id=cm.user_id).first() if cm.user_id else None
+                    # Combine both checks into a single query for efficiency
+                    existing_mention = None
+                    if cm.user_id:
+                        existing_mention = session.query(models.Mention).filter(
+                            (models.Mention.subreddit_id == sub.id) & (
+                                (models.Mention.comment_id == cm.id) | (models.Mention.user_id == cm.user_id)
+                            )
+                        ).first()
+                    else:
+                        existing_mention = session.query(models.Mention).filter_by(subreddit_id=sub.id, comment_id=cm.id).first()
                     
-                    if not comment_mention_exists and not user_mention_exists:
+                    if not existing_mention:
                         mention = models.Mention(
                             subreddit_id=sub.id,
                             comment_id=cm.id,
@@ -1450,16 +1527,14 @@ def main_loop():
                                 break
                         if exit_after_batch:
                             break
-                # If we processed any discovered subs in SUBREDDITS_TO_SCAN mode, refresh metadata
+                # If we discovered any subreddits in this batch, queue them for async metadata refresh
                 if discovered_overall:
-                    logger.info(f"Refreshing metadata for {len(discovered_overall)} subreddits discovered in this scan")
+                    queued_count = 0
                     for sname in discovered_overall:
-                        try:
-                            sub = session.query(models.Subreddit).filter_by(name=sname).first()
-                            if sub and should_refresh_sub(sub):
-                                update_subreddit_metadata(session, sub)
-                        except Exception:
-                            logger.exception(f"Failed to refresh metadata for /r/{sname}")
+                        if queue_metadata_refresh(sname):
+                            queued_count += 1
+                    if queued_count > 0:
+                        logger.info(f"Queued {queued_count}/{len(discovered_overall)} subreddits for async metadata refresh")
                 # Record scan completion metrics
                 with Session(engine) as session:
                     try:
@@ -1499,32 +1574,7 @@ def main_loop():
                             exit_after_batch = True
                             break
 
-                # After processing posts in this batch, refresh subreddit metadata for
-                # all discovered or-stale subreddits in one pass to reduce frequent
-                # synchronous per-mention requests.
-                if discovered_overall:
-                    logger.info(f"Refreshing metadata for {len(discovered_overall)} subreddits discovered in this batch")
-                    for sname in discovered_overall:
-                        try:
-                            logger.info(f"Refreshing metadata for /r/{sname}")
-                            sub = session.query(models.Subreddit).filter_by(name=sname).first()
-                            if sub:
-                                # Skip banned subreddits
-                                try:
-                                    if getattr(sub, 'is_banned', False):
-                                        logger.info(f"Skipping metadata refresh for banned /r/{sname}")
-                                        continue
-                                except Exception:
-                                    pass
-                                try:
-                                    if should_refresh_sub(sub):
-                                        update_subreddit_metadata(session, sub)
-                                    else:
-                                        logger.info(f"Skipping metadata refresh for /r/{sname} (checked within 24h)")
-                                except Exception:
-                                    session.rollback()
-                        except Exception:
-                            logger.exception(f"Failed to refresh metadata for /r/{sname}")
+                # After processing posts in this batch, queue discovered subreddits for async metadata refresh\n                if discovered_overall:\n                    queued_count = 0\n                    for sname in discovered_overall:\n                        if queue_metadata_refresh(sname):\n                            queued_count += 1\n                    if queued_count > 0:\n                        logger.info(f\"Queued {queued_count}/{len(discovered_overall)} subreddits for async metadata refresh\")
                 if exit_after_batch:
                     logger.info('TEST_POST_LIMIT reached; performing missing-metadata refresh before exiting')
                     try:
