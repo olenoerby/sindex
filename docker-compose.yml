@@ -90,7 +90,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       SERVICE_NAME: redis_worker
       TZ: ${TZ:-UTC}
-    command: ["rq", "worker", "-u", "redis://redis:6379/0", "default"]
+      PYTHONWARNINGS: ignore::UserWarning
+    command: ["rq", "worker", "default"]
     networks:
       - pineapple-net
 
