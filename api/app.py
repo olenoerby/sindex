@@ -4,11 +4,14 @@ import time
 import httpx
 import os
 import logging
+import json
+import hashlib
+from functools import wraps
 from api.distributed_rate_limiter import DistributedRateLimiter
 
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, select, desc, func, text, literal_column
 from sqlalchemy.orm import Session
@@ -44,6 +47,83 @@ engine = create_engine(DATABASE_URL, echo=False, future=True)
 
 # FastAPI app
 app = FastAPI(title="Pineapple Index API")
+
+# Redis cache client (separate from rate limiter)
+try:
+    from redis import Redis
+    cache_redis = Redis.from_url(REDIS_URL, decode_responses=True)
+    cache_redis.ping()  # Test connection
+    api_logger.info("Cache Redis connected")
+except Exception as e:
+    api_logger.warning(f"Cache Redis unavailable: {e}")
+    cache_redis = None
+
+# Cache decorator for stats endpoints
+def cache_response(ttl_seconds: int = 30):
+    """Cache the JSON response in Redis with the given TTL."""
+    def decorator(func):
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            if not cache_redis:
+                return await func(*args, **kwargs)
+            
+            # Generate cache key from function name and arguments
+            key_data = f"{func.__name__}:{json.dumps(kwargs, sort_keys=True)}"
+            cache_key = f"api_cache:{hashlib.md5(key_data.encode()).hexdigest()}"
+            
+            # Try to get from cache
+            try:
+                cached = cache_redis.get(cache_key)
+                if cached:
+                    return JSONResponse(content=json.loads(cached))
+            except Exception as e:
+                api_logger.warning(f"Cache read error: {e}")
+            
+            # Call the function and cache result
+            result = await func(*args, **kwargs)
+            try:
+                # Handle different response types
+                if isinstance(result, (dict, list)):
+                    cache_redis.setex(cache_key, ttl_seconds, json.dumps(result))
+                elif hasattr(result, 'body'):
+                    cache_redis.setex(cache_key, ttl_seconds, result.body.decode())
+            except Exception as e:
+                api_logger.warning(f"Cache write error: {e}")
+            
+            return result
+        
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            if not cache_redis:
+                return func(*args, **kwargs)
+            
+            # Generate cache key from function name and arguments
+            key_data = f"{func.__name__}:{json.dumps(kwargs, sort_keys=True)}"
+            cache_key = f"api_cache:{hashlib.md5(key_data.encode()).hexdigest()}"
+            
+            # Try to get from cache
+            try:
+                cached = cache_redis.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception as e:
+                api_logger.warning(f"Cache read error: {e}")
+            
+            # Call the function and cache result
+            result = func(*args, **kwargs)
+            try:
+                cache_redis.setex(cache_key, ttl_seconds, json.dumps(result))
+            except Exception as e:
+                api_logger.warning(f"Cache write error: {e}")
+            
+            return result
+        
+        # Return appropriate wrapper based on whether function is async
+        import inspect
+        if inspect.iscoroutinefunction(func):
+            return async_wrapper
+        return sync_wrapper
+    return decorator
 
 
 def fetch_sub_about(name: str):
@@ -418,6 +498,7 @@ def health():
 
 
 @app.get("/stats")
+@cache_response(ttl_seconds=30)
 def stats(days: int = None):
     """Aggregate statistics about the dataset.
 
@@ -639,6 +720,7 @@ def list_mentions(page: int = 1, per_page: int = 50, subreddit: Optional[str] = 
 
 
 @app.get("/stats/top")
+@cache_response(ttl_seconds=60)
 def stats_top(limit: int = 20, days: int = 90):
     limit = max(1, min(500, int(limit)))
     days = max(1, min(3650, int(days)))
@@ -654,6 +736,7 @@ def stats_top(limit: int = 20, days: int = 90):
 
 
 @app.get("/stats/top_posts")
+@cache_response(ttl_seconds=60)
 def stats_top_posts(limit: int = 20, days: int = 90):
     """Top posts ordered by total mention count."""
     limit = max(1, min(500, int(limit)))
@@ -678,6 +761,7 @@ def stats_top_posts(limit: int = 20, days: int = 90):
 
 
 @app.get("/stats/top_unique_posts")
+@cache_response(ttl_seconds=60)
 def stats_top_unique_posts(limit: int = 20, days: int = 90):
     """Posts ordered by number of distinct subreddits mentioned in the post's comments."""
     limit = max(1, min(500, int(limit)))
@@ -705,6 +789,7 @@ def stats_top_unique_posts(limit: int = 20, days: int = 90):
 
 
 @app.get("/stats/top_commenters")
+@cache_response(ttl_seconds=60)
 def stats_top_commenters(limit: int = 20, days: int = 90):
     """Top users by number of comments (user_id)."""
     limit = max(1, min(500, int(limit)))
@@ -744,6 +829,7 @@ def stats_top_commenters(limit: int = 20, days: int = 90):
 
 
 @app.get("/stats/daily")
+@cache_response(ttl_seconds=60)
 def stats_daily(days: int = 90):
     """Return aggregated counts for posts, comments, mentions and new subreddits.
 
