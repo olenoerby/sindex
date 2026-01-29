@@ -702,12 +702,21 @@
     const clearQueryBtn = document.getElementById('clearQuery');
     if(qEl){
       qEl.addEventListener('input', (e)=>{
-        try{ clearQueryBtn.style.display = (qEl.value && qEl.value.length>0) ? 'inline' : 'none'; }catch(e){}
-        debouncedLoadPage();
+        try{ 
+          if(clearQueryBtn) clearQueryBtn.style.display = (qEl.value && qEl.value.length>0) ? 'inline' : 'none'; 
+        }catch(err){ console.error('Clear button error:', err); }
+        try{
+          debouncedLoadPage();
+        }catch(err){ console.error('Search error:', err); }
       });
     }
     if(clearQueryBtn){
-      clearQueryBtn.addEventListener('click', ()=>{ qEl.value = ''; clearQueryBtn.style.display = 'none'; try{ savePrefs(); }catch(e){} loadPage(1); });
+      clearQueryBtn.addEventListener('click', ()=>{ 
+        if(qEl) qEl.value = ''; 
+        if(clearQueryBtn) clearQueryBtn.style.display = 'none'; 
+        try{ savePrefs(); }catch(e){} 
+        loadPage(1); 
+      });
     }
 
     // About button: opens modal; move between header and filter popout on resize

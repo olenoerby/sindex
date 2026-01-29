@@ -13,7 +13,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, select, desc, func, text, literal_column
+from sqlalchemy import create_engine, select, desc, func, text, literal_column, or_
 from sqlalchemy.orm import Session
 from . import models
 
@@ -315,11 +315,14 @@ def list_subreddits(
         # Apply text search filter if provided
         if q:
             q_lower = f"%{q.lower()}%"
+            # Use COALESCE to handle NULL values safely
             subq = subq.filter(
-                func.lower(models.Subreddit.name).like(q_lower) |
-                func.lower(models.Subreddit.display_name_prefixed).like(q_lower) |
-                func.lower(models.Subreddit.title).like(q_lower) |
-                func.lower(models.Subreddit.description).like(q_lower)
+                or_(
+                    func.lower(models.Subreddit.name).like(q_lower),
+                    func.lower(func.coalesce(models.Subreddit.display_name, '')).like(q_lower),
+                    func.lower(func.coalesce(models.Subreddit.title, '')).like(q_lower),
+                    func.lower(func.coalesce(models.Subreddit.description, '')).like(q_lower)
+                )
             )
 
         # Apply subscriber filters
@@ -342,7 +345,6 @@ def list_subreddits(
         
         if nsfw_conditions:
             # At least one is enabled - combine with OR
-            from sqlalchemy import or_
             if len(nsfw_conditions) == 1:
                 subq = subq.filter(nsfw_conditions[0])
             else:
@@ -396,7 +398,6 @@ def list_subreddits(
         
         if avail_conditions:
             # At least one is enabled - combine with OR
-            from sqlalchemy import or_
             if len(avail_conditions) == 1:
                 subq = subq.filter(avail_conditions[0])
             else:
@@ -460,7 +461,12 @@ def list_subreddits(
         except Exception:
             subq = subq.order_by(desc('mentions'))
 
-        rows = subq.offset(offset).limit(per_page).all()
+        try:
+            rows = subq.offset(offset).limit(per_page).all()
+        except Exception as e:
+            api_logger.exception(f"Query execution failed with q={q}")
+            raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
+            
         items = []
         for row in rows:
             s, mentions = row
