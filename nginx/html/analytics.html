@@ -331,19 +331,22 @@
         const res = await fetch(`/stats/daily?days=${days}`);
         if(!res.ok) throw new Error('HTTP '+res.status);
         const { items=[] } = await res.json();
-        
-        // Create a hash of the data to detect changes
-        const dataKey = JSON.stringify(items);
+
+        // Respect the requested window client-side in case the server returns a larger set
+        const visibleItems = (days >= 999999) ? items : items.slice(-Math.max(0, Number(days)));
+
+        // Create a hash of the visible data to detect changes
+        const dataKey = JSON.stringify(visibleItems);
         if(cache.daily[days] === dataKey) {
           return; // No changes, skip update
         }
         cache.daily[days] = dataKey;
-        
-        const labels = items.map(it => it.date);
-        const mentions = items.map(it => it.mentions || 0);
-        const posts = items.map(it => it.posts || 0);
-        const comments = items.map(it => it.comments || 0);
-        const newSubs = items.map(it => it.new_subreddits || 0);
+
+        const labels = visibleItems.map(it => it.date);
+        const mentions = visibleItems.map(it => it.mentions || 0);
+        const posts = visibleItems.map(it => it.posts || 0);
+        const comments = visibleItems.map(it => it.comments || 0);
+        const newSubs = visibleItems.map(it => it.new_subreddits || 0);
 
         // Update timeline chart
         timelineChart.data.labels = labels;
@@ -366,7 +369,7 @@
         const totalPosts = posts.reduce((a,b) => a+b, 0);
         const totalComments = comments.reduce((a,b) => a+b, 0);
         const avgMentions = mentions.length ? totalMentions / mentions.length : 0;
-        // Show average for last 7 days within the selected range (or all days if range < 7d)
+        // Show average for last 7 days within the selected (visible) range
         const daysToShow = Math.min(7, mentions.length);
         const last7 = mentions.slice(-daysToShow);
         const avg7 = last7.length ? last7.reduce((a,b)=>a+b,0) / last7.length : 0;
@@ -381,8 +384,8 @@
         document.getElementById('peakValue').textContent = `${fmt(peakVal)} mentions on peak day`;
 
         // New subs within the selected date range
-        const newSubsInRange = newSubs.slice(-currentDays) || newSubs;
-        const sumNewSubs = newSubsInRange.reduce((a,b)=>a+b,0);
+        // newSubs already reflects the visible window, so sum directly
+        const sumNewSubs = newSubs.reduce((a,b)=>a+b,0);
         document.getElementById('newSubs30').textContent = fmt(sumNewSubs);
         
         // Summaries
