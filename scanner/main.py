@@ -1537,9 +1537,63 @@ def main_loop():
                 logger.info('Completed SUBREDDITS_TO_SCAN pass, sleeping 5 minutes before next scan')
                 time.sleep(300)
             else:
-                # No scan configs found in database
-                logger.warning('No subreddit scan configs found in database. Add configurations to subreddit_scan_config table.')
-                logger.info('Sleeping 10 minutes before checking again')
+                # No scan configs found in database — operate in idle mode:
+                #  - Queue metadata refreshes for subreddits that lack metadata
+                #  - Also queue subreddits whose metadata was last checked >= 24 hours ago
+                logger.warning('No subreddit scan configs found in database. Switching to idle metadata refresh mode.')
+                try:
+                    with Session(engine) as session:
+                        now = datetime.utcnow()
+                        cutoff = now - timedelta(hours=24)
+                        from sqlalchemy import or_, and_
+
+                        # Subreddits missing key metadata fields
+                        missing_q = session.query(models.Subreddit).filter(
+                            or_(
+                                models.Subreddit.display_name == None,
+                                models.Subreddit.title == None,
+                                models.Subreddit.description == None,
+                                models.Subreddit.subscribers == None
+                            )
+                        )
+
+                        # Subreddits with older metadata (last_checked <= 24h ago)
+                        stale_q = session.query(models.Subreddit).filter(
+                            models.Subreddit.last_checked != None,
+                            models.Subreddit.last_checked <= cutoff
+                        )
+
+                        # Combine iterator: prioritize missing metadata first
+                        queued = 0
+                        processed_names = set()
+
+                        for sub in missing_q.limit(500).all():
+                            try:
+                                if sub.name and sub.name not in processed_names:
+                                    if queue_metadata_refresh(sub.name):
+                                        queued += 1
+                                    processed_names.add(sub.name)
+                            except Exception:
+                                logger.debug(f'Failed to queue missing metadata for /r/{getattr(sub, "name", "?")}')
+
+                        # Then queue stale ones (but avoid duplicates)
+                        for sub in stale_q.limit(1000).all():
+                            try:
+                                if sub.name and sub.name not in processed_names:
+                                    if queue_metadata_refresh(sub.name):
+                                        queued += 1
+                                    processed_names.add(sub.name)
+                            except Exception:
+                                logger.debug(f'Failed to queue stale metadata for /r/{getattr(sub, "name", "?")}')
+
+                        if queued > 0:
+                            logger.info(f'Queued {queued} subreddits for idle metadata refresh')
+                        else:
+                            logger.info('No subreddits required metadata refresh at this time')
+                except Exception:
+                    logger.exception('Error while enqueuing idle metadata refresh tasks')
+
+                # Sleep before checking again to avoid tight loop
                 time.sleep(600)
         except Exception as e:
             logger.exception(f"Scanner main loop error: {e}")
