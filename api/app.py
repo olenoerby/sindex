@@ -461,10 +461,10 @@ def list_subreddits(
         if show_pending is False and (show_available is True or show_available is None):
             # Exclude pending subreddits (title is None/NULL) only when showing available
             subq = subq.filter(models.Subreddit.title != None)
-        elif show_pending is True and show_available is True:
-            # Include only pending available subreddits
-            subq = subq.filter(models.Subreddit.title == None)
-        # else: show all or only showing banned (don't filter by pending status)
+        # If show_pending is True: include all (both pending and non-pending)
+        # If show_pending is None: default behavior (include all)
+        # Note: When show_banned=True, banned subreddits often have NULL metadata,
+        # so we don't filter by pending status to avoid excluding them
         
         # Apply mentions filters via HAVING (since mentions is an aggregate)
         # Do not force a minimum mention count; include subreddits with 0 mentions
