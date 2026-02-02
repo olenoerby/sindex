@@ -106,11 +106,10 @@
               
               <!-- Discovery Date Filters -->
               <div style="font-weight:600;margin-bottom:6px;margin-top:8px;font-size:0.95rem;color:var(--muted)">Discovery Date</div>
-              <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><input id="onlyNewWeek" type="checkbox"/> New this week ⭐</label>
               <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                 <select id="firstMentionedPreset" style="width:100%">
                   <option value="" selected>All time</option>
-                  <option value="7">Last 7 days</option>
+                  <option value="7">New this week ⭐</option>
                   <option value="30">Last 30 days</option>
                   <option value="90">Last 90 days</option>
                   <option value="custom">Custom days...</option>
@@ -219,7 +218,6 @@
           maxSubscribers: document.getElementById('maxSubscribers') ? document.getElementById('maxSubscribers').value : '',
           firstMentionedPreset: document.getElementById('firstMentionedPreset') ? document.getElementById('firstMentionedPreset').value : '',
           customDays: document.getElementById('customDays') ? document.getElementById('customDays').value : '',
-          onlyNewWeek: document.getElementById('onlyNewWeek') ? !!document.getElementById('onlyNewWeek').checked : false,
           showAvailable: document.getElementById('showAvailable') ? !!document.getElementById('showAvailable').checked : false,
           showBanned: document.getElementById('showBanned') ? !!document.getElementById('showBanned').checked : false,
           showPending: document.getElementById('showPending') ? !!document.getElementById('showPending').checked : true,
@@ -247,7 +245,6 @@
         if(document.getElementById('maxSubscribers')) document.getElementById('maxSubscribers').value = prefs.maxSubscribers || '';
         if(document.getElementById('firstMentionedPreset')) document.getElementById('firstMentionedPreset').value = prefs.firstMentionedPreset || '';
         if(document.getElementById('customDays')) document.getElementById('customDays').value = prefs.customDays || '';
-        if(document.getElementById('onlyNewWeek')) document.getElementById('onlyNewWeek').checked = !!prefs.onlyNewWeek;
         if(document.getElementById('showAvailable')) document.getElementById('showAvailable').checked = !!prefs.showAvailable;
         if(document.getElementById('showBanned')) document.getElementById('showBanned').checked = !!prefs.showBanned;
         if(document.getElementById('showPending')) document.getElementById('showPending').checked = (prefs.showPending !== false);
@@ -358,13 +355,10 @@
         if(ms) parts.push('min_subscribers=' + encodeURIComponent(ms));
         const mS = document.getElementById('maxSubscribers') ? document.getElementById('maxSubscribers').value : '';
         if(mS) parts.push('max_subscribers=' + encodeURIComponent(mS));
-        const onlyNewWeek = document.getElementById('onlyNewWeek') ? document.getElementById('onlyNewWeek').checked : false;
         const firstMentionedPreset = document.getElementById('firstMentionedPreset') ? document.getElementById('firstMentionedPreset').value : '';
         const customDays = document.getElementById('customDays') ? document.getElementById('customDays').value : '';
-        // If "Only new (7 days)" is checked, override any other date filter
-        if(onlyNewWeek){
-          parts.push('first_mentioned_days=7');
-        } else if(firstMentionedPreset === 'custom' && customDays){
+        // Apply discovery date filter
+        if(firstMentionedPreset === 'custom' && customDays){
           parts.push('first_mentioned_days=' + encodeURIComponent(customDays));
         } else if(firstMentionedPreset && firstMentionedPreset !== 'custom' && firstMentionedPreset !== ''){
           parts.push('first_mentioned_days=' + encodeURIComponent(firstMentionedPreset));
@@ -935,7 +929,6 @@
       if(document.getElementById('firstMentionedPreset')) document.getElementById('firstMentionedPreset').value = '';
       if(document.getElementById('customDays')) document.getElementById('customDays').value = '';
       if(document.getElementById('customDaysLabel')) document.getElementById('customDaysLabel').style.display = 'none';
-      if(document.getElementById('onlyNewWeek')) document.getElementById('onlyNewWeek').checked = false;
       if(document.getElementById('showAvailable')) document.getElementById('showAvailable').checked = true;
       document.getElementById('showBanned').checked = false;
       if(document.getElementById('showPending')) document.getElementById('showPending').checked = true;
@@ -1021,15 +1014,6 @@
       customDaysInput.addEventListener('input', ()=>{
         try{ savePrefs(); }catch(e){}
         debouncedLoadPage();
-      });
-    }
-
-    // wire onlyNewWeek checkbox
-    const onlyNewWeekCheckbox = document.getElementById('onlyNewWeek');
-    if(onlyNewWeekCheckbox){
-      onlyNewWeekCheckbox.addEventListener('change', ()=>{
-        try{ savePrefs(); }catch(e){}
-        loadPage(1);
       });
     }
 
