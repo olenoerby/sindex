@@ -22,12 +22,13 @@
 <body>
   <nav class="main-nav">
     <a href="/" class="nav-link">Browse</a>
-    <a href="/discover.html" class="nav-link">Discover</a>
-    <a href="/analytics.html" class="nav-link active">Analytics</a>
+    <a href="/discover" class="nav-link">Discover</a>
+    <a href="/analytics" class="nav-link active">Analytics</a>
   </nav>
-  <div class="page" style="padding-top: 32px;">
-    <header>
-      <h1>Analytics Control Room</h1>
+  
+  <div class="page" style="padding-top: 32px; padding-bottom: 60px;">
+    <header style="margin-bottom: 32px;">
+      <h1 style="margin-bottom: 12px;">Analytics Control Room</h1>
       <p class="lead">A wide-angle view of all Reddit mentions we track. Explore volume over time, identify standout subreddits and posts, and keep tabs on scanner health.</p>
       <div class="meta">
         <span class="pill" id="lastScanned">Last DB run: —</span>
@@ -35,7 +36,7 @@
         <span class="pill" id="window">Window: 30 days</span>
       </div>
       <div class="controls">
-        <span class="muted">Timeline window:</span>
+        <span class="muted" style="margin-right: 8px;">Timeline window:</span>
         <button class="btn" data-days="30">30d</button>
         <button class="btn" data-days="90">90d</button>
         <button class="btn" data-days="180">180d</button>

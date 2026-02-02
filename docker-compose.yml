@@ -117,7 +117,7 @@ services:
   #   restart: unless-stopped
   #   depends_on:
   #     - nginx
-  #   command: tunnel --no-autoupdate run --token "eyJhIjoiMTcxMTI5ODllODExMWU2MmU0YjgyYmM0NjYxNzVhY2UiLCJ0IjoiZjI2ZjVkYjMtYTVjNC00NTgwLWJiODQtYjNhNTllNjcxODQ1IiwicyI6IlltRXdNakJpTkdZdE1USXhNUzAwTTJabUxXSTBZVFV0TnpCaU56QmhNMkkxTm1ZdyJ9" # PROD TUNNEL
+    # command: tunnel --no-autoupdate run --token "eyJhIjoiMTcxMTI5ODllODExMWU2MmU0YjgyYmM0NjYxNzVhY2UiLCJ0IjoiZjI2ZjVkYjMtYTVjNC00NTgwLWJiODQtYjNhNTllNjcxODQ1IiwicyI6IlltRXdNakJpTkdZdE1USXhNUzAwTTJabUxXSTBZVFV0TnpCaU56QmhNMkkxTm1ZdyJ9" # PROD TUNNEL
   #   networks:
   #     - pineapple-net
   #   volumes:
