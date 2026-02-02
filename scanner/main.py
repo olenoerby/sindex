@@ -1424,6 +1424,7 @@ def refresh_metadata_phase(duration_hours):
     Updates last_checked timestamp after each refresh.
     """
     logger.info(f"=== Starting Metadata Refresh Phase ({duration_hours} hours) ===")
+    logger.info("Priority order: 1) Subreddits without metadata (oldest first), 2) Stale metadata >24h old, 3) Not-found subreddits every 7 days")
     start_time = time.time()
     end_time = start_time + (duration_hours * 3600)
     refreshed_count = 0
@@ -1442,6 +1443,10 @@ def refresh_metadata_phase(duration_hours):
                 (models.Subreddit.last_checked == None) | (models.Subreddit.last_checked < cutoff_24h)
             ).order_by(models.Subreddit.first_mentioned.asc()).first()
             
+            priority_level = None
+            if subreddit_to_refresh:
+                priority_level = 1
+            
             # Priority 2: If no missing metadata, find subreddit with stale metadata (>24h old)
             # Only for subreddits that exist (subreddit_found != False)
             if not subreddit_to_refresh:
@@ -1452,6 +1457,8 @@ def refresh_metadata_phase(duration_hours):
                     models.Subreddit.is_banned == False,
                     models.Subreddit.subreddit_found != False
                 ).order_by(models.Subreddit.last_checked.asc()).first()
+                if subreddit_to_refresh:
+                    priority_level = 2
             
             # Priority 3: Re-check "not found" subreddits every 7 days (they may have been created)
             # Banned subreddits are never re-checked as bans are permanent
@@ -1463,6 +1470,8 @@ def refresh_metadata_phase(duration_hours):
                     models.Subreddit.last_checked != None,
                     models.Subreddit.last_checked < cutoff_7d
                 ).order_by(models.Subreddit.last_checked.asc()).first()
+                if subreddit_to_refresh:
+                    priority_level = 3
             
             # If no subreddits need refresh, we're done
             if not subreddit_to_refresh:
@@ -1471,7 +1480,8 @@ def refresh_metadata_phase(duration_hours):
             
             # Refresh this subreddit's metadata
             sub_name = subreddit_to_refresh.name
-            logger.info(f"Refreshing metadata for /r/{sub_name} ({refreshed_count + 1} processed)")
+            priority_msg = f" [Priority {priority_level}]" if priority_level else ""
+            logger.info(f"Refreshing metadata for /r/{sub_name}{priority_msg} ({refreshed_count + 1} processed)")
             
             # Use the rate limiter before making the API call
             if distributed_rate_limiter:
