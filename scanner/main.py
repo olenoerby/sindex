@@ -50,6 +50,8 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://pineapple:pineap
 API_RATE_DELAY_SECONDS = float(os.getenv('API_RATE_DELAY_SECONDS', '6.5'))
 API_MAX_CALLS_MINUTE = int(os.getenv('API_MAX_CALLS_MINUTE', '30'))
 METADATA_REFRESH_HOURS = float(os.getenv('METADATA_REFRESH_HOURS', '2'))
+# If true, scanner starts by refreshing metadata before scanning for new mentions
+SCAN_FOR_METADATA_FIRST = os.getenv('SCAN_FOR_METADATA_FIRST', 'false').lower() in ('true', '1', 'yes')
 # How many days back to rescan existing posts for new/edited comments.
 # Set `POST_COMMENT_LOOKBACK_DAYS` to 0 to skip rescanning existing posts.
 # If not set or empty, will rescan ALL posts with no day limit.
@@ -1253,14 +1255,18 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
     try:
         r = fetch_sub_about(sub.name)
         if r.status_code == 200:
-            # successful fetch — clear not_found if previously set
-            sub.not_found = False
+            # successful fetch — mark subreddit as found
+            sub.subreddit_found = True
             payload = r.json()
             # some responses may return top-level 'reason' for banned communities
             if isinstance(payload, dict) and payload.get('reason'):
                 sub.is_banned = True
                 sub.ban_reason = str(payload.get('reason'))
             data = payload.get('data', {}) if isinstance(payload, dict) else {}
+            # Check subreddit_type for private/restricted/gold_restricted
+            subtype = data.get('subreddit_type', '')
+            if subtype in ('private', 'gold_restricted', 'employees_only', 'gold_only'):
+                sub.is_banned = True
             # save a broad set of metadata fields
             try:
                 sub.display_name = data.get('display_name') or sub.display_name
@@ -1318,14 +1324,16 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                     sub.is_over18 = bool(ov)
             except Exception:
                 pass
-            sub.is_banned = sub.is_banned or False
+            # Only set is_banned=False if we haven't detected it as banned above
+            if not sub.is_banned:
+                sub.is_banned = False
             try:
                 logger.info(f"Updated metadata for /r/{sub.name}: display_name='{sub.display_name}', subscribers={sub.subscribers}")
             except Exception:
                 logger.debug(f"Metadata updated for /r/{sub.name} (logging failed)")
         elif 300 <= r.status_code < 400:
             # treat redirects as 'not found' for our purposes
-            sub.not_found = True
+            sub.subreddit_found = False
             sub.is_banned = False
             try:
                 payload = r.json()
@@ -1341,10 +1349,10 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
             # Distinguish between forbidden (403) and not found (404).
             if r.status_code == 403:
                 sub.is_banned = True
-                sub.not_found = False
+                sub.subreddit_found = True
             else:
-                # 404 -> subreddit does not exist; mark as not_found so UI can hide it
-                sub.not_found = True
+                # 404 -> subreddit does not exist; mark subreddit_found=False so UI can hide it
+                sub.subreddit_found = False
                 sub.is_banned = False
             # if response body includes reason, save it
             try:
@@ -1354,7 +1362,7 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
             except Exception:
                 pass
             try:
-                logger.info(f"/r/{sub.name} returned {r.status_code}; is_banned={sub.is_banned}, not_found={sub.not_found}")
+                logger.info(f"/r/{sub.name} returned {r.status_code}; is_banned={sub.is_banned}, subreddit_found={sub.subreddit_found}")
             except Exception:
                 pass
         elif r.status_code == 429:
@@ -1481,8 +1489,15 @@ def main_loop():
     logger.info("wait_for_db_startup() complete")
     ensure_tables()
     logger.info("ensure_tables() complete")
-    # Skip startup metadata prefetch; begin scanning immediately
-    logger.info("Starting scanner main loop")
+    
+    # Optionally start with metadata refresh before scanning
+    if SCAN_FOR_METADATA_FIRST:
+        logger.info(f"SCAN_FOR_METADATA_FIRST enabled. Running initial metadata refresh for {METADATA_REFRESH_HOURS} hours...")
+        refresh_metadata_phase(METADATA_REFRESH_HOURS)
+        logger.info("Initial metadata refresh complete. Starting scanner main loop.")
+    else:
+        logger.info("Starting scanner main loop (skip startup metadata refresh)")
+    
     while True:
         scan_start_time = time.time()
         mentions_before = 0
