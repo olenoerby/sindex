@@ -89,6 +89,69 @@
       </div>
     </section>
 
+    <section style="margin-top: 40px; margin-bottom: 20px;">
+      <h2 style="margin-bottom: 16px;">Metadata Health</h2>
+      <p class="muted" style="margin-bottom: 24px;">Statistics about subreddit metadata freshness and completeness.</p>
+    </section>
+
+    <section class="grid" id="metadataGrid">
+      <div class="card">
+        <h3>Total Subreddits</h3>
+        <div class="stat-value" id="metaTotalSubs">—</div>
+        <div class="stat-sub">All tracked subreddits</div>
+      </div>
+      <div class="card">
+        <h3>Up-to-date</h3>
+        <div class="stat-value" id="metaUpToDate">—</div>
+        <div class="stat-sub" id="metaUpToDatePct">Checked within 24h</div>
+      </div>
+      <div class="card">
+        <h3>Stale metadata</h3>
+        <div class="stat-value" id="metaStale">—</div>
+        <div class="stat-sub" id="metaStalePct">Older than 24h</div>
+      </div>
+      <div class="card">
+        <h3>Never checked</h3>
+        <div class="stat-value" id="metaNeverChecked">—</div>
+        <div class="stat-sub" id="metaNeverCheckedPct">No metadata fetched yet</div>
+      </div>
+      <div class="card">
+        <h3>Without metadata</h3>
+        <div class="stat-value" id="metaWithout">—</div>
+        <div class="stat-sub" id="metaWithoutPct">Missing title, subs &amp; desc</div>
+      </div>
+      <div class="card">
+        <h3>Banned</h3>
+        <div class="stat-value" id="metaBanned">—</div>
+        <div class="stat-sub" id="metaBannedPct">Banned subreddits</div>
+      </div>
+      <div class="card">
+        <h3>Not found</h3>
+        <div class="stat-value" id="metaNotFound">—</div>
+        <div class="stat-sub" id="metaNotFoundPct">Don't exist (404)</div>
+      </div>
+      <div class="card">
+        <h3>Pending retry</h3>
+        <div class="stat-value" id="metaPendingRetry">—</div>
+        <div class="stat-sub" id="metaPendingRetryPct">Waiting after error</div>
+      </div>
+      <div class="card">
+        <h3>NSFW</h3>
+        <div class="stat-value" id="metaNsfw">—</div>
+        <div class="stat-sub" id="metaNsfwPct">18+ subreddits</div>
+      </div>
+      <div class="card">
+        <h3>With subscribers</h3>
+        <div class="stat-value" id="metaWithSubs">—</div>
+        <div class="stat-sub" id="metaWithSubsPct">Have subscriber counts</div>
+      </div>
+      <div class="card">
+        <h3>With descriptions</h3>
+        <div class="stat-value" id="metaWithDesc">—</div>
+        <div class="stat-sub" id="metaWithDescPct">Have description text</div>
+      </div>
+    </section>
+
     <section class="layout">
       <div class="card">
         <div class="row-title">
@@ -327,6 +390,51 @@
       }
     }
 
+    async function fetchMetadataStats(){
+      try {
+        const res = await fetch('/stats/metadata');
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const m = await res.json();
+        
+        const total = m.total_subreddits || 0;
+        const pct = (val) => total > 0 ? ` (${((val / total) * 100).toFixed(1)}%)` : '';
+        
+        // Update metadata stats
+        document.getElementById('metaTotalSubs').textContent = fmt(total);
+        document.getElementById('metaUpToDate').textContent = fmt(m.up_to_date || 0);
+        document.getElementById('metaUpToDatePct').textContent = 'Checked within 24h' + pct(m.up_to_date || 0);
+        
+        document.getElementById('metaStale').textContent = fmt(m.stale_24h_plus || 0);
+        document.getElementById('metaStalePct').textContent = 'Older than 24h' + pct(m.stale_24h_plus || 0);
+        
+        document.getElementById('metaNeverChecked').textContent = fmt(m.never_checked || 0);
+        document.getElementById('metaNeverCheckedPct').textContent = 'No metadata fetched yet' + pct(m.never_checked || 0);
+        
+        document.getElementById('metaWithout').textContent = fmt(m.without_metadata || 0);
+        document.getElementById('metaWithoutPct').textContent = 'Missing title, subs & desc' + pct(m.without_metadata || 0);
+        
+        document.getElementById('metaBanned').textContent = fmt(m.banned || 0);
+        document.getElementById('metaBannedPct').textContent = 'Banned subreddits' + pct(m.banned || 0);
+        
+        document.getElementById('metaNotFound').textContent = fmt(m.not_found || 0);
+        document.getElementById('metaNotFoundPct').textContent = "Don't exist (404)" + pct(m.not_found || 0);
+        
+        document.getElementById('metaPendingRetry').textContent = fmt(m.pending_retry || 0);
+        document.getElementById('metaPendingRetryPct').textContent = 'Waiting after error' + pct(m.pending_retry || 0);
+        
+        document.getElementById('metaNsfw').textContent = fmt(m.nsfw_subreddits || 0);
+        document.getElementById('metaNsfwPct').textContent = '18+ subreddits' + pct(m.nsfw_subreddits || 0);
+        
+        document.getElementById('metaWithSubs').textContent = fmt(m.with_subscriber_data || 0);
+        document.getElementById('metaWithSubsPct').textContent = 'Have subscriber counts' + pct(m.with_subscriber_data || 0);
+        
+        document.getElementById('metaWithDesc').textContent = fmt(m.with_descriptions || 0);
+        document.getElementById('metaWithDescPct').textContent = 'Have description text' + pct(m.with_descriptions || 0);
+      } catch(err) {
+        console.warn('metadata stats failed', err);
+      }
+    }
+
     function ensureCharts(){
       if(!timelineChart){
         const ctx = document.getElementById('timelineChart').getContext('2d');
@@ -545,12 +653,14 @@
         if (confirmed === '1') {
           // Initial load
           fetchStats();
+          fetchMetadataStats();
           fetchDaily(currentDays);
           fetchTopBlocks();
           
           // Auto-refresh every 30 seconds
           setInterval(() => { 
             fetchStats();
+            fetchMetadataStats();
             fetchDaily(currentDays);
             fetchTopBlocks();
           }, 30000);
@@ -561,12 +671,14 @@
       showAgeGate(() => {
         // Initial load
         fetchStats();
+        fetchMetadataStats();
         fetchDaily(currentDays);
         fetchTopBlocks();
         
         // Auto-refresh every 30 seconds
         setInterval(() => { 
           fetchStats();
+          fetchMetadataStats();
           fetchDaily(currentDays);
           fetchTopBlocks();
         }, 30000);
