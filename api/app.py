@@ -355,7 +355,7 @@ def list_subreddits(
     api_logger.debug(f"Filter params: show_available={show_available}, show_banned={show_banned}, show_pending={show_pending}, show_nsfw={show_nsfw}, show_non_nsfw={show_non_nsfw}")
     
     # validate sort and sort_dir here to avoid FastAPI raising a 422
-    allowed_sorts = {'mentions','subscribers','active_users','created_utc','first_mentioned','name','display_name_prefixed','title','description','random'}
+    allowed_sorts = {'mentions','subscribers','active_users','created_utc','first_mentioned','last_checked','name','display_name_prefixed','title','description','random'}
     if not sort or sort not in allowed_sorts:
         sort = 'mentions'
     allowed_dirs = {'asc','desc','random'}
@@ -510,7 +510,7 @@ def list_subreddits(
                     col = getattr(models.Subreddit, sort)
                     # For numeric columns where NULL means "unknown" (subscribers, active_users,
                     # timestamps), place NULLs at the end so descending sort shows highest numbers first.
-                    nulls_last_cols = {'subscribers', 'active_users', 'created_utc', 'first_mentioned'}
+                    nulls_last_cols = {'subscribers', 'active_users', 'created_utc', 'first_mentioned', 'last_checked'}
                     if sort in nulls_last_cols:
                         if sort_dir == 'desc':
                             subq = subq.order_by(desc(col).nulls_last())
