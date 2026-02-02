@@ -98,6 +98,45 @@ body {
   opacity: 1;
 }
 
+.nav-icon {
+  display: none;
+  font-size: 18px;
+}
+
+.nav-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  vertical-align: middle;
+}
+
+.nav-text {
+  display: inline;
+}
+
+/* Mobile: Show only emoji icons */
+@media (max-width: 600px) {
+  .main-nav {
+    padding: 8px 12px !important;
+    gap: 4px !important;
+  }
+
+  .nav-link {
+    padding: 10px 12px !important;
+    font-size: 18px !important;
+    min-width: 44px;
+    text-align: center;
+  }
+
+  .nav-icon {
+    display: inline;
+  }
+
+  .nav-text {
+    display: none;
+  }
+}
+
 /* Main content padding after nav */
 body > h1,
 body > .container,
