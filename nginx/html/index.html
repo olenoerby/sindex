@@ -738,8 +738,79 @@
       }
     });
 
-    // Initial load
-    loadSubreddits();
+    // Cookie functions for age gate
+    function setCookie(name, value, days) {
+      const date = new Date();
+      date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+      document.cookie = `${name}=${value};expires=${date.toUTCString()};path=/`;
+    }
+
+    function getCookie(name) {
+      const nameEQ = name + '=';
+      const cookies = document.cookie.split(';');
+      for (let c of cookies) {
+        c = c.trim();
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length);
+      }
+      return null;
+    }
+
+    // Age gate modal
+    function showAgeGate(onConfirm) {
+      const overlay = document.createElement('div');
+      overlay.className = 'age-modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'age-modal-box';
+      const h = document.createElement('h2');
+      h.textContent = 'Age confirmation';
+      const p = document.createElement('p');
+      p.textContent = 'This page may contain explicit (18+) content. Please confirm that you are of the required age to visit this website.';
+      const actions = document.createElement('div');
+      actions.className = 'age-modal-actions';
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'btn';
+      confirmBtn.textContent = 'I am 18+';
+      const leaveBtn = document.createElement('button');
+      leaveBtn.className = 'btn btn-ghost';
+      leaveBtn.textContent = 'Leave';
+      actions.appendChild(leaveBtn);
+      actions.appendChild(confirmBtn);
+      box.appendChild(h);
+      box.appendChild(p);
+      box.appendChild(actions);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      document.body.style.overflow = 'hidden';
+
+      confirmBtn.addEventListener('click', () => {
+        try { setCookie('sindex_age_confirmed', '1', 365); } catch(e) {}
+        overlay.remove();
+        document.body.style.overflow = '';
+        onConfirm();
+      });
+
+      leaveBtn.addEventListener('click', () => {
+        try { overlay.remove(); } catch(e) {}
+        window.location.href = 'about:blank';
+      });
+
+      confirmBtn.focus();
+    }
+
+    // Check age confirmation and load
+    function initWithAgeGate() {
+      try {
+        const confirmed = getCookie('sindex_age_confirmed');
+        if (confirmed === '1') {
+          loadSubreddits();
+          return;
+        }
+      } catch(e) { /* ignore and show gate */ }
+      showAgeGate(() => loadSubreddits());
+    }
+
+    // Initial load with age gate
+    initWithAgeGate();
   </script>
 </body>
 </html>
