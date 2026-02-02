@@ -21,6 +21,8 @@ services:
     restart: unless-stopped
     depends_on:
       - db
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
       SERVICE_NAME: api

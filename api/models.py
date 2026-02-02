@@ -45,7 +45,7 @@ class Subreddit(Base):
     # timestamp (unix seconds) of the first time a subreddit was mentioned
     first_mentioned = Column(BigInteger, nullable=True)
     is_banned = Column(Boolean, default=False)
-    is_not_found = Column(Boolean, default=False)
+    subreddit_found = Column(Boolean, default=True)  # False if subreddit doesn't exist on Reddit (404)
     is_over18 = Column(Boolean, nullable=True)
     last_checked = Column(DateTime, server_default=func.now(), onupdate=func.now())
     # Retry/priority fields used when a fetch returned 429 Too Many Requests

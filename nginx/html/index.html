@@ -509,14 +509,9 @@
         a.dataset.name = s.name;
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
-        if(s.is_banned){
-          // show struck-through subreddit name (no explicit "(Banned)" text)
-          const nameSpan = document.createElement('span');
-          nameSpan.textContent = s.display_name_prefixed || ('/r/' + s.name);
-          nameSpan.classList.add('banned');
-          a.appendChild(nameSpan);
-        } else if(s.not_found){
-          // mark not found with dark gray italic and append (Not found)
+        // Check subreddit_found first - if false, it doesn't exist on Reddit (404)
+        if(s.subreddit_found === false){
+          // Subreddit doesn't exist - show as unavailable with "Not found"
           a.classList.add('not-found');
           const nf = document.createElement('span');
           nf.textContent = s.display_name_prefixed || ('/r/' + s.name);
@@ -525,6 +520,12 @@
           nfSpan.textContent = ' (Not found)';
           nfSpan.className = 'muted';
           a.appendChild(nfSpan);
+        } else if(s.is_banned){
+          // show struck-through subreddit name for banned/private subreddits
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = s.display_name_prefixed || ('/r/' + s.name);
+          nameSpan.classList.add('banned');
+          a.appendChild(nameSpan);
         } else {
           a.textContent = s.display_name_prefixed || ('/r/' + s.name);
         }
@@ -533,7 +534,7 @@
 
         const titleTd = document.createElement('td');
         titleTd.classList.add('col-title');
-        const isUnprocessed = (s.title === null || s.title === undefined) && !s.is_banned;
+        const isUnprocessed = (s.title === null || s.title === undefined) && !s.is_banned && s.subreddit_found !== false;
         if (isUnprocessed) {
           const sp = document.createElement('span'); sp.className = 'muted'; sp.textContent = 'Pending update';
           titleTd.appendChild(sp);

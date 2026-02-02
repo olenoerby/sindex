@@ -59,8 +59,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Get database URL from environment variable, fallback to alembic.ini
+    configuration = config.get_section(config.config_ini_section, {})
+    if not configuration.get("sqlalchemy.url"):
+        configuration["sqlalchemy.url"] = os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@db:5432/subreddit_index")
+    
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

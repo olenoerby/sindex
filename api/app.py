@@ -58,6 +58,13 @@ except Exception as e:
     api_logger.warning(f"Cache Redis unavailable: {e}")
     cache_redis = None
 
+# JSON encoder that handles datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
 # Cache decorator for stats endpoints
 def cache_response(ttl_seconds: int = 30):
     """Cache the JSON response in Redis with the given TTL."""
@@ -84,7 +91,7 @@ def cache_response(ttl_seconds: int = 30):
             try:
                 # Handle different response types
                 if isinstance(result, (dict, list)):
-                    cache_redis.setex(cache_key, ttl_seconds, json.dumps(result))
+                    cache_redis.setex(cache_key, ttl_seconds, json.dumps(result, cls=DateTimeEncoder))
                 elif hasattr(result, 'body'):
                     cache_redis.setex(cache_key, ttl_seconds, result.body.decode())
             except Exception as e:
@@ -112,7 +119,7 @@ def cache_response(ttl_seconds: int = 30):
             # Call the function and cache result
             result = func(*args, **kwargs)
             try:
-                cache_redis.setex(cache_key, ttl_seconds, json.dumps(result))
+                cache_redis.setex(cache_key, ttl_seconds, json.dumps(result, cls=DateTimeEncoder))
             except Exception as e:
                 api_logger.warning(f"Cache write error: {e}")
             
@@ -168,9 +175,11 @@ def refresh_subreddit(name: str, api_key: Optional[str] = Query(None)):
 
     provided_key = api_key or os.getenv('HTTP_X_API_KEY') or ''
     # If API key is configured, require it
+    is_authenticated = False
     if ENV_API_KEY:
         if not provided_key or provided_key != ENV_API_KEY:
             raise HTTPException(status_code=403, detail='Invalid or missing API key')
+        is_authenticated = True
 
     lname = name.lower().strip()
     # cooldown and rate limiting
@@ -181,12 +190,14 @@ def refresh_subreddit(name: str, api_key: Optional[str] = Query(None)):
     GLOBAL_LIMIT = int(os.getenv('REFRESH_GLOBAL_PER_MIN', '60'))
 
     with Session(engine) as session:
-        s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
-        if s and s.last_checked:
-            delta = (datetime.utcnow() - s.last_checked).total_seconds()
-            if delta < COOLDOWN:
-                retry_after = int(COOLDOWN - delta)
-                raise HTTPException(status_code=429, detail=f'Subreddit recently refreshed; retry after {retry_after} seconds')
+        # Skip cooldown check for authenticated requests
+        if not is_authenticated:
+            s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
+            if s and s.last_checked:
+                delta = (datetime.utcnow() - s.last_checked).total_seconds()
+                if delta < COOLDOWN:
+                    retry_after = int(COOLDOWN - delta)
+                    raise HTTPException(status_code=429, detail=f'Subreddit recently refreshed; retry after {retry_after} seconds')
 
         # simple global rate limit per minute
         try:
@@ -214,6 +225,57 @@ def refresh_subreddit(name: str, api_key: Optional[str] = Query(None)):
             api_logger.exception('Failed to enqueue refresh job')
             raise HTTPException(status_code=500, detail='Failed to enqueue refresh job')
 
+
+@app.post("/subreddits/refresh-pending")
+def refresh_pending_subreddits(api_key: Optional[str] = Query(None)):
+    """Enqueue refresh jobs for all pending subreddits (title IS NULL).
+    
+    Requires API key authentication.
+    Returns count of jobs enqueued.
+    """
+    # API key check
+    ENV_API_KEY = os.getenv('API_KEY')
+    provided_key = api_key or os.getenv('HTTP_X_API_KEY') or ''
+    
+    if ENV_API_KEY:
+        if not provided_key or provided_key != ENV_API_KEY:
+            raise HTTPException(status_code=403, detail='Invalid or missing API key')
+    
+    REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+    
+    with Session(engine) as session:
+        # Find all pending subreddits
+        pending = session.query(models.Subreddit).filter(
+            models.Subreddit.title == None
+        ).all()
+        
+        if not pending:
+            return {"ok": True, "enqueued": 0, "message": "No pending subreddits found"}
+        
+        # Enqueue jobs
+        try:
+            from rq import Queue
+            from redis import Redis as _Redis
+            REDIS = _Redis.from_url(REDIS_URL)
+            q = Queue(connection=REDIS)
+            import api.tasks as tasks
+            
+            job_ids = []
+            for sub in pending:
+                job = q.enqueue(tasks.refresh_subreddit_job, sub.name, job_timeout=300)
+                job_ids.append(job.id)
+            
+            api_logger.info(f"Enqueued {len(job_ids)} refresh jobs for pending subreddits")
+            return {
+                "ok": True,
+                "enqueued": len(job_ids),
+                "total_pending": len(pending),
+                "message": f"Enqueued {len(job_ids)} refresh jobs"
+            }, 202
+            
+        except Exception as e:
+            api_logger.exception('Failed to enqueue pending refresh jobs')
+            raise HTTPException(status_code=500, detail=f'Failed to enqueue jobs: {str(e)}')
 
 
 @app.get("/api", response_class=HTMLResponse)
@@ -250,6 +312,7 @@ def api_index():
 class SubredditOut(BaseModel):
     name: str
     display_name: Optional[str]
+    display_name_prefixed: Optional[str]  # Add prefixed version like r/subreddit
     title: Optional[str]
     created_utc: Optional[int]
     first_mentioned: Optional[int]
@@ -257,6 +320,7 @@ class SubredditOut(BaseModel):
     active_users: Optional[int]
     description: Optional[str]
     is_banned: Optional[bool]
+    subreddit_found: Optional[bool]  # False if subreddit doesn't exist (404)
     over18: Optional[bool]
     last_checked: Optional[datetime]
     mentions: Optional[int]
@@ -361,40 +425,24 @@ def list_subreddits(
         # Build OR conditions for what to include
         avail_conditions = []
         if show_available is True:
-            # Include available subreddits (not banned and not is_not_found)
+            # Include available subreddits (not banned and subreddit exists)
             try:
                 avail_conditions.append(
                     ((models.Subreddit.is_banned == False) | (models.Subreddit.is_banned == None)) &
-                    ((models.Subreddit.is_not_found == False) | (models.Subreddit.is_not_found == None))
+                    ((models.Subreddit.subreddit_found == True) | (models.Subreddit.subreddit_found == None))
                 )
             except Exception:
                 avail_conditions.append(
-                    (models.Subreddit.is_banned != True) & (models.Subreddit.is_not_found != True)
+                    (models.Subreddit.is_banned != True) & (models.Subreddit.subreddit_found == True)
                 )
         if show_banned is True:
-            # Include banned/unavailable subreddits (is_banned=True OR is_not_found=True)
+            # Include banned/unavailable subreddits (is_banned=True OR subreddit_found=False)
             try:
                 avail_conditions.append(
-                    (models.Subreddit.is_banned == True) | (models.Subreddit.is_not_found == True)
+                    (models.Subreddit.is_banned == True) | (models.Subreddit.subreddit_found == False)
                 )
             except Exception:
                 avail_conditions.append(models.Subreddit.is_banned == True)
-        
-        if show_pending is False:
-            # Exclude pending subreddits (title is None/NULL)
-            try:
-                avail_conditions.append(models.Subreddit.title != None)
-            except Exception:
-                pass
-        elif show_pending is True:
-            # Include only pending subreddits (title is None/NULL)
-            try:
-                avail_conditions.append(models.Subreddit.title == None)
-            except Exception:
-                pass
-        else:
-            # show_pending is None (not specified) - default to showing pending (include all)
-            pass
         
         if avail_conditions:
             # At least one is enabled - combine with OR
@@ -402,10 +450,22 @@ def list_subreddits(
                 subq = subq.filter(avail_conditions[0])
             else:
                 subq = subq.filter(or_(*avail_conditions))
-        elif show_available is False and show_banned is False and show_pending is False:
-            # All explicitly disabled - return empty result
+        elif show_available is False and show_banned is False:
+            # Both explicitly disabled - return empty result
             subq = subq.filter(models.Subreddit.id == None)
-        # else: all are None (not specified) - default to showing all (no filter)
+        # else: both are None (not specified) - default to showing all (no filter)
+        
+        # Handle pending filter separately (not part of OR logic above)
+        # Only apply pending filter when showing available subreddits
+        # Banned/unavailable subreddits typically have NULL metadata, so don't filter them by pending status
+        if show_pending is False and (show_available is True or show_available is None):
+            # Exclude pending subreddits (title is None/NULL) only when showing available
+            subq = subq.filter(models.Subreddit.title != None)
+        elif show_pending is True and show_available is True:
+            # Include only pending available subreddits
+            subq = subq.filter(models.Subreddit.title == None)
+        # else: show all or only showing banned (don't filter by pending status)
+        
         # Apply mentions filters via HAVING (since mentions is an aggregate)
         # Do not force a minimum mention count; include subreddits with 0 mentions
         if min_mentions is not None:
@@ -471,9 +531,17 @@ def list_subreddits(
         for row in rows:
             s, mentions = row
             # API is read-only - just return database data. Scanner handles all metadata updates.
+            # Construct display_name_prefixed from display_name or name
+            display_name_prefixed = None
+            if s.display_name:
+                display_name_prefixed = f"r/{s.display_name}"
+            elif s.name:
+                display_name_prefixed = f"r/{s.name}"
+            
             items.append(SubredditOut(
                 name=s.name,
                 display_name=s.display_name,
+                display_name_prefixed=display_name_prefixed,
                 title=s.title,
                 created_utc=s.created_utc,
                 first_mentioned=s.first_mentioned,
@@ -481,6 +549,7 @@ def list_subreddits(
                 active_users=s.active_users,
                 description=s.description,
                 is_banned=s.is_banned,
+                subreddit_found=s.subreddit_found if hasattr(s, 'subreddit_found') else True,
                 over18=s.is_over18,
                 last_checked=s.last_checked,
                 mentions=mentions
@@ -530,6 +599,15 @@ def stats(days: int = None):
             try:
                 last_scanned = session.query(func.max(models.Subreddit.last_checked)).scalar()
                 out["last_scanned"] = last_scanned
+            except Exception:
+                pass
+            # Include scanner metadata from analytics table (independent of date range)
+            try:
+                analytics = session.query(models.Analytics).first()
+                if analytics:
+                    out["last_scan_started"] = getattr(analytics, 'last_scan_started', None)
+                    out["last_scan_duration"] = getattr(analytics, 'last_scan_duration', None)
+                    out["last_scan_new_mentions"] = getattr(analytics, 'last_scan_new_mentions', None)
             except Exception:
                 pass
             return out
@@ -690,13 +768,13 @@ def get_subreddit(name: str):
                     except Exception:
                         pass
                     s.is_banned = s.is_banned or False
-                    s.is_not_found = False
+                    s.subreddit_found = True
                 elif r.status_code in (403, 404):
                     if r.status_code == 403:
                         s.is_banned = True
-                        s.is_not_found = False
+                        s.subreddit_found = True
                     else:
-                        s.is_not_found = True
+                        s.subreddit_found = False
                         s.is_banned = False
                 else:
                     api_logger.debug(f"/r/{s.name} metadata fetch returned status {r.status_code}")
@@ -705,7 +783,7 @@ def get_subreddit(name: str):
                 session.add(s)
                 session.commit()
                 mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
-                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "is_not_found": s.is_not_found, "last_checked": s.last_checked, "mentions": mentions}}
+                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "subreddit_found": s.subreddit_found, "last_checked": s.last_checked, "mentions": mentions}}
             except Exception:
                 session.rollback()
                 raise HTTPException(status_code=500, detail="Failed to refresh subreddit metadata")

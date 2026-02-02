@@ -62,72 +62,67 @@ def refresh_subreddit_job(name: str):
                 pass
             if r.status_code == 200:
                 payload = r.json()
-                if isinstance(payload, dict) and payload.get('reason'):
+                # Check if Reddit returned an error in the body (e.g., {"detail": "Not Found"})
+                if isinstance(payload, dict) and payload.get('detail') == 'Not Found':
+                    # Subreddit doesn't exist
+                    sub.is_banned = False
+                    sub.subreddit_found = False
+                elif isinstance(payload, dict) and payload.get('reason'):
+                    # Subreddit is banned
                     sub.is_banned = True
-                    sub.ban_reason = str(payload.get('reason'))
-                data = payload.get('data', {}) if isinstance(payload, dict) else {}
-                try:
-                    sub.display_name = data.get('display_name') or sub.display_name
-                    sub.display_name_prefixed = data.get('display_name_prefixed') or sub.display_name_prefixed
-                    sub.title = data.get('title') or sub.title
-                except Exception:
-                    pass
-                created = _safe_int(data.get('created_utc'))
-                if created:
-                    sub.created_utc = created
-                subs = _safe_int(data.get('subscribers'))
-                if subs is not None:
-                    sub.subscribers = subs
-                active = _safe_int(data.get('accounts_active') or data.get('active_user_count') or data.get('active_accounts'))
-                if active is not None:
-                    sub.active_users = active
-                public = data.get('public_description')
-                if public:
-                    sub.description = public
+                    sub.subreddit_found = True
+                else:
+                    # Valid subreddit data
+                    data = payload.get('data', {}) if isinstance(payload, dict) else {}
                     try:
-                        sub.public_description_html = data.get('public_description_html') or sub.public_description_html
+                        sub.display_name = data.get('display_name') or sub.display_name
+                        sub.title = data.get('title') or sub.title
                     except Exception:
                         pass
-                try:
-                    ov = data.get('over18') if 'over18' in data else data.get('over_18')
-                    if ov is not None:
-                        sub.is_over18 = bool(ov)
-                except Exception:
-                    pass
-                sub.is_banned = sub.is_banned or False
-                sub.is_not_found = False
-                # successful fetch: clear any retry scheduling
-                sub.retry_priority = 0
-                sub.next_retry_at = None
-            elif r.status_code in (403, 404):
-                if r.status_code == 403:
-                    sub.is_banned = True
-                    sub.is_not_found = False
-                else:
-                    sub.is_not_found = True
-                    sub.is_banned = False
-                try:
-                    payload = r.json()
-                    if isinstance(payload, dict) and payload.get('reason'):
-                        sub.ban_reason = str(payload.get('reason'))
-                except Exception:
-                    pass
+                    created = _safe_int(data.get('created_utc'))
+                    if created:
+                        sub.created_utc = created
+                    subs = _safe_int(data.get('subscribers'))
+                    if subs is not None:
+                        sub.subscribers = subs
+                    active = _safe_int(data.get('accounts_active') or data.get('active_user_count') or data.get('active_accounts'))
+                    if active is not None:
+                        sub.active_users = active
+                    public = data.get('public_description')
+                    if public:
+                        sub.description = public
+                    try:
+                        ov = data.get('over18') if 'over18' in data else data.get('over_18')
+                        if ov is not None:
+                            sub.is_over18 = bool(ov)
+                    except Exception:
+                        pass
+                    sub.is_banned = sub.is_banned or False
+                    sub.subreddit_found = True
+                    # successful fetch: clear any retry scheduling
+                    sub.next_retry_at = None
+            elif r.status_code == 404:
+                # 404 means the subreddit does not exist on Reddit
+                sub.is_banned = False
+                sub.subreddit_found = False
+            elif r.status_code == 403:
+                # 403 means the subreddit is banned/private
+                sub.is_banned = True
+                sub.subreddit_found = True
             elif r.status_code == 429:
                 # Rate limited: parse Retry-After and schedule a retry
                 ra = parse_retry_after_seconds(r.headers.get('Retry-After'))
                 if ra is None:
                     ra = 30
                 sub.next_retry_at = datetime.utcnow() + timedelta(seconds=ra)
-                # increase priority so this subreddit is scheduled earlier once ready
-                sub.retry_priority = min((sub.retry_priority or 0) + 1, 10)
-                logger.warning(f"Rate limited on /r/{lname}; retry in {ra}s, priority={sub.retry_priority}")
+                logger.warning(f"Rate limited on /r/{lname}; retry in {ra}s")
             else:
                 logger.warning(f"Unexpected status {r.status_code} fetching /r/{lname}")
 
             sub.last_checked = datetime.utcnow()
             session.add(sub)
             session.commit()
-            logger.info(f"Background refresh complete for /r/{lname}: is_banned={sub.is_banned}, is_not_found={sub.is_not_found}")
+            logger.info(f"Background refresh complete for /r/{lname}: is_banned={sub.is_banned}, subreddit_found={sub.subreddit_found}")
     except Exception as e:
         logger.exception(f"refresh_subreddit_job failed for /r/{name}: {e}")
         raise
