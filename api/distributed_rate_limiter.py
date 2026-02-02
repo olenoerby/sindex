@@ -67,7 +67,7 @@ class DistributedRateLimiter:
                 
                 if elapsed < self.min_delay_seconds:
                     sleep_duration = self.min_delay_seconds - elapsed
-                    logger.info(f"[{self.container_name}] Rate limit: sleeping {sleep_duration:.2f}s (min delay)")
+                    logger.info(f"Rate limit: sleeping {sleep_duration:.2f}s (min delay)")
                     time.sleep(sleep_duration)
                     current_time = time.time()
             
@@ -76,10 +76,10 @@ class DistributedRateLimiter:
             call_count = int(call_count_str) if call_count_str else 0
             
             if call_count >= self.max_calls_per_minute:
-                logger.warning(f"[{self.container_name}] Reached {self.max_calls_per_minute} calls/minute limit")
+                logger.warning(f"Reached {self.max_calls_per_minute} calls/minute limit")
                 # Sleep and reset counter (conservative approach: wait the full min delay)
                 sleep_duration_extra = self.min_delay_seconds
-                logger.info(f"[{self.container_name}] Sleeping {sleep_duration_extra}s due to per-minute limit")
+                logger.info(f"Sleeping {sleep_duration_extra}s due to per-minute limit")
                 time.sleep(sleep_duration_extra)
                 sleep_duration += sleep_duration_extra
                 current_time = time.time()
@@ -87,7 +87,7 @@ class DistributedRateLimiter:
                 self.redis_client.delete(REDIS_KEY_API_CALL_COUNT)
             
         except Exception as e:
-            logger.error(f"[{self.container_name}] Distributed rate limiter error: {e}")
+            logger.error(f"Distributed rate limiter error: {e}")
             # Fall back to local delay if Redis fails
             time.sleep(self.min_delay_seconds)
             sleep_duration += self.min_delay_seconds
@@ -109,9 +109,9 @@ class DistributedRateLimiter:
             self.redis_client.incr(REDIS_KEY_API_CALL_COUNT)
             self.redis_client.expire(REDIS_KEY_API_CALL_COUNT, 60)
             
-            logger.debug(f"[{self.container_name}] Recorded API call to Redis")
+            logger.debug(f"Recorded API call to Redis")
         except Exception as e:
-            logger.error(f"[{self.container_name}] Failed to record API call: {e}")
+            logger.error(f"Failed to record API call: {e}")
     
     def get_stats(self) -> dict:
         """Get current rate limit statistics."""
