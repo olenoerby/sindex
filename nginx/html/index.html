@@ -391,6 +391,7 @@
         <option value="active_users">Most Active</option>
         <option value="first_mentioned">Recently Discovered</option>
         <option value="created_utc">Newest Subreddits</option>
+        <option value="display_name_prefixed">A-Z (Alphabetical)</option>
         <option value="random">Random</option>
       </select>
       
@@ -434,6 +435,7 @@
     let totalResults = 0;
     let perPage = 24;
     let currentSort = 'mentions';
+    let previousSort = 'mentions'; // Store sort before search
     let currentFilter = 'nsfw';
     let searchQuery = '';
     let isLoading = false;
@@ -450,6 +452,24 @@
     const prevPage = document.getElementById('prevPage');
     const nextPage = document.getElementById('nextPage');
     const pageInfo = document.getElementById('pageInfo');
+
+    // Normalize user-entered subreddit queries to a bare subreddit name.
+    // Accepts forms like '/r/name', 'r/name', 'https://reddit.com/r/name', or 'rname'.
+    function normalizeQuery(raw) {
+      try {
+        const qraw = String(raw || '').trim();
+        // strip full reddit URL
+        let q = qraw.replace(/^https?:\/\/(?:www\.)?reddit\.com\/r\//i, '');
+        // strip leading /r/ or r/ 
+        q = q.replace(/^\/?r\//i, '').trim();
+        // accept shorthand rname
+        const m = qraw.match(/^r([A-Za-z0-9_]{3,21})$/i);
+        if (m && m[1]) q = m[1];
+        return q;
+      } catch(e) {
+        return String(raw || '').trim();
+      }
+    }
 
     // Utility: Format numbers with K/M suffixes
     function formatNumber(num) {
@@ -547,7 +567,7 @@
       });
 
       if (searchQuery) {
-        params.append('q', searchQuery);
+        params.append('q', normalizeQuery(searchQuery));
       }
 
       // Filter by NSFW/SFW - using show_nsfw and show_non_nsfw parameters
@@ -637,8 +657,23 @@
 
     // Event listeners
     searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value.trim();
+      const newQuery = e.target.value.trim();
+      const hadQuery = searchQuery.length > 0;
+      const hasQuery = newQuery.length > 0;
+      searchQuery = newQuery;
       searchClear.style.display = searchQuery ? 'block' : 'none';
+      
+      // Auto-switch to alphabetical sort when searching (for relevance)
+      if (hasQuery && !hadQuery) {
+        // Just started searching - save current sort and switch to A-Z
+        previousSort = currentSort;
+        currentSort = 'display_name_prefixed';
+        sortBy.value = currentSort;
+      } else if (!hasQuery && hadQuery) {
+        // Just cleared search - restore previous sort
+        currentSort = previousSort;
+        sortBy.value = currentSort;
+      }
       
       // Debounce search
       clearTimeout(searchInput.timeout);
@@ -650,6 +685,11 @@
 
     searchClear.addEventListener('click', () => {
       searchInput.value = '';
+      if (searchQuery.length > 0) {
+        // Restore previous sort when clearing search
+        currentSort = previousSort;
+        sortBy.value = currentSort;
+      }
       searchQuery = '';
       searchClear.style.display = 'none';
       currentPage = 1;
@@ -663,6 +703,10 @@
 
     sortBy.addEventListener('change', (e) => {
       currentSort = e.target.value;
+      // Update previousSort if not currently searching
+      if (!searchQuery) {
+        previousSort = currentSort;
+      }
       currentPage = 1;
       loadSubreddits();
     });
