@@ -49,6 +49,7 @@ logger.propagate = False
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple')
 API_RATE_DELAY_SECONDS = float(os.getenv('API_RATE_DELAY_SECONDS', '6.5'))
 API_MAX_CALLS_MINUTE = int(os.getenv('API_MAX_CALLS_MINUTE', '30'))
+METADATA_REFRESH_HOURS = float(os.getenv('METADATA_REFRESH_HOURS', '2'))
 # How many days back to rescan existing posts for new/edited comments.
 # Set `POST_COMMENT_LOOKBACK_DAYS` to 0 to skip rescanning existing posts.
 # If not set or empty, will rescan ALL posts with no day limit.
@@ -87,38 +88,11 @@ try:
         max_calls_per_minute=API_MAX_CALLS_MINUTE
     )
     distributed_rate_limiter.set_container_name("scanner")
-    logger.info("Initialized distributed rate limiter (shared with metadata_worker)")
+    logger.info("Initialized distributed rate limiter")
 except Exception as e:
     logger.error(f"Failed to initialize distributed rate limiter: {e}")
     logger.warning("Continuing with local rate limiting only")
     distributed_rate_limiter = None
-_redis_client = None
-def get_redis_client():
-    """Lazy-load Redis client for task queueing."""
-    global _redis_client
-    if _redis_client is None and REDIS_AVAILABLE:
-        try:
-            redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-            _redis_client = Redis.from_url(redis_url)
-            _redis_client.ping()  # test connection
-            logger.info("Redis connected for task queueing")
-        except Exception as e:
-            logger.warning(f"Redis not available for task queueing: {e}")
-            _redis_client = None
-    return _redis_client
-
-def queue_metadata_refresh(subreddit_name: str):
-    """Queue a subreddit metadata refresh task to Redis for async processing."""
-    try:
-        redis_client = get_redis_client()
-        if redis_client:
-            # Push to a simple queue that the redis_worker can consume
-            redis_client.lpush('metadata_refresh_queue', subreddit_name)
-            logger.debug(f"Queued metadata refresh for /r/{subreddit_name} to Redis")
-            return True
-    except Exception as e:
-        logger.debug(f"Failed to queue metadata refresh: {e}")
-    return False
 
 
 class RateLimiter:
@@ -1432,9 +1406,81 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
 # metadata_worker removed: metadata is fetched synchronously during discovery
 
 
+def refresh_metadata_phase(duration_hours):
+    """
+    Run metadata refresh for up to duration_hours.
+    Priority 1: Subreddits with NO metadata (title is null), ordered by first_mentioned (oldest first)
+    Priority 2: Subreddits with metadata older than 24 hours, ordered by last_checked (oldest first)
+    Updates last_checked timestamp after each refresh.
+    """
+    logger.info(f"=== Starting Metadata Refresh Phase ({duration_hours} hours) ===")
+    start_time = time.time()
+    end_time = start_time + (duration_hours * 3600)
+    refreshed_count = 0
+    
+    while time.time() < end_time:
+        with Session(engine) as session:
+            # Priority 1: Find one subreddit with NO metadata (oldest first_mentioned first)
+            subreddit_to_refresh = session.query(models.Subreddit).filter(
+                models.Subreddit.title == None,
+                models.Subreddit.is_banned == False,
+                models.Subreddit.subreddit_found != False
+            ).order_by(models.Subreddit.first_mentioned.asc()).first()
+            
+            # Priority 2: If no missing metadata, find subreddit with stale metadata (>24h old)
+            if not subreddit_to_refresh:
+                cutoff = datetime.utcnow() - timedelta(hours=24)
+                subreddit_to_refresh = session.query(models.Subreddit).filter(
+                    models.Subreddit.title != None,
+                    models.Subreddit.last_checked != None,
+                    models.Subreddit.last_checked < cutoff,
+                    models.Subreddit.is_banned == False,
+                    models.Subreddit.subreddit_found != False
+                ).order_by(models.Subreddit.last_checked.asc()).first()
+            
+            # If no subreddits need refresh, we're done
+            if not subreddit_to_refresh:
+                logger.info("No subreddits require metadata refresh. Metadata phase complete.")
+                break
+            
+            # Refresh this subreddit's metadata
+            sub_name = subreddit_to_refresh.name
+            logger.info(f"Refreshing metadata for /r/{sub_name} ({refreshed_count + 1} processed)")
+            
+            # Use the rate limiter before making the API call
+            if distributed_rate_limiter:
+                distributed_rate_limiter.wait_if_needed()
+            else:
+                rate_limiter.wait_if_needed()
+            
+            # Fetch metadata using the existing fetch_subreddit_about function
+            fetch_subreddit_about(subreddit_to_refresh, session)
+            
+            # Record the API call
+            if distributed_rate_limiter:
+                distributed_rate_limiter.record_api_call()
+            else:
+                rate_limiter.record_call()
+            
+            refreshed_count += 1
+            
+            # Commit after each refresh
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.exception(f"Failed to commit metadata for /r/{sub_name}")
+    
+    elapsed = time.time() - start_time
+    logger.info(f"=== Metadata Refresh Phase Complete: {refreshed_count} subreddits refreshed in {elapsed/3600:.2f} hours ===")
+
+
 def main_loop():
+    logger.info("main_loop() called")
     wait_for_db_startup()
+    logger.info("wait_for_db_startup() complete")
     ensure_tables()
+    logger.info("ensure_tables() complete")
     # Skip startup metadata prefetch; begin scanning immediately
     logger.info("Starting scanner main loop")
     while True:
@@ -1516,14 +1562,28 @@ def main_loop():
                             # Stop pagination if we've hit the per-subreddit limit or no more pages
                             if not after_sub or (TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT):
                                 break
-                # If we discovered any subreddits in this batch, queue them for async metadata refresh
+                # If we discovered any subreddits in this batch, immediately fetch their metadata
                 if discovered_overall:
-                    queued_count = 0
+                    logger.info(f"Discovered {len(discovered_overall)} new subreddits during scan")
                     for sname in discovered_overall:
-                        if queue_metadata_refresh(sname):
-                            queued_count += 1
-                    if queued_count > 0:
-                        logger.info(f"Queued {queued_count}/{len(discovered_overall)} subreddits for async metadata refresh")
+                        # Fetch metadata immediately for newly discovered subreddits
+                        with Session(engine) as meta_session:
+                            sub = meta_session.query(models.Subreddit).filter(models.Subreddit.name == sname.lower()).first()
+                            if sub:
+                                if distributed_rate_limiter:
+                                    distributed_rate_limiter.wait_if_needed()
+                                else:
+                                    rate_limiter.wait_if_needed()
+                                fetch_subreddit_about(sub, meta_session)
+                                if distributed_rate_limiter:
+                                    distributed_rate_limiter.record_api_call()
+                                else:
+                                    rate_limiter.record_call()
+                                try:
+                                    meta_session.commit()
+                                except Exception:
+                                    meta_session.rollback()
+                
                 # Record scan completion metrics
                 with Session(engine) as session:
                     try:
@@ -1533,67 +1593,20 @@ def main_loop():
                             record_scan_completion(session, scan_start_time, new_mentions)
                     except Exception:
                         logger.debug('Failed to record scan completion')
-                # Sleep before next scan iteration
-                logger.info('Completed SUBREDDITS_TO_SCAN pass, sleeping 5 minutes before next scan')
+                
+                # After scanning completes, run metadata refresh phase
+                logger.info(f'Scan complete. Starting metadata refresh phase for {METADATA_REFRESH_HOURS} hours...')
+                refresh_metadata_phase(METADATA_REFRESH_HOURS)
+                
+                # After metadata refresh completes, sleep briefly before next scan
+                logger.info('Metadata refresh complete. Sleeping 5 minutes before next scan iteration.')
                 time.sleep(300)
             else:
                 # No scan configs found in database — operate in idle mode:
-                #  - Queue metadata refreshes for subreddits that lack metadata
-                #  - Also queue subreddits whose metadata was last checked >= 24 hours ago
-                logger.warning('No subreddit scan configs found in database. Switching to idle metadata refresh mode.')
-                try:
-                    with Session(engine) as session:
-                        now = datetime.utcnow()
-                        cutoff = now - timedelta(hours=24)
-                        from sqlalchemy import or_, and_
-
-                        # Subreddits missing key metadata fields
-                        missing_q = session.query(models.Subreddit).filter(
-                            or_(
-                                models.Subreddit.display_name == None,
-                                models.Subreddit.title == None,
-                                models.Subreddit.description == None,
-                                models.Subreddit.subscribers == None
-                            )
-                        )
-
-                        # Subreddits with older metadata (last_checked <= 24h ago)
-                        stale_q = session.query(models.Subreddit).filter(
-                            models.Subreddit.last_checked != None,
-                            models.Subreddit.last_checked <= cutoff
-                        )
-
-                        # Combine iterator: prioritize missing metadata first
-                        queued = 0
-                        processed_names = set()
-
-                        for sub in missing_q.limit(500).all():
-                            try:
-                                if sub.name and sub.name not in processed_names:
-                                    if queue_metadata_refresh(sub.name):
-                                        queued += 1
-                                    processed_names.add(sub.name)
-                            except Exception:
-                                logger.debug(f'Failed to queue missing metadata for /r/{getattr(sub, "name", "?")}')
-
-                        # Then queue stale ones (but avoid duplicates)
-                        for sub in stale_q.limit(1000).all():
-                            try:
-                                if sub.name and sub.name not in processed_names:
-                                    if queue_metadata_refresh(sub.name):
-                                        queued += 1
-                                    processed_names.add(sub.name)
-                            except Exception:
-                                logger.debug(f'Failed to queue stale metadata for /r/{getattr(sub, "name", "?")}')
-
-                        if queued > 0:
-                            logger.info(f'Queued {queued} subreddits for idle metadata refresh')
-                        else:
-                            logger.info('No subreddits required metadata refresh at this time')
-                except Exception:
-                    logger.exception('Error while enqueuing idle metadata refresh tasks')
-
-                # Sleep before checking again to avoid tight loop
+                # Just run continuous metadata refresh
+                logger.warning('No subreddit scan configs found in database. Running continuous metadata refresh.')
+                refresh_metadata_phase(METADATA_REFRESH_HOURS)
+                logger.info('Idle metadata refresh complete. Sleeping 10 minutes before checking for scan configs again.')
                 time.sleep(600)
         except Exception as e:
             logger.exception(f"Scanner main loop error: {e}")

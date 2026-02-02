@@ -61,42 +61,42 @@ services:
     networks:
       - pineapple-net
 
-  metadata_worker:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - redis
-      - db
-    environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
-      REDIS_URL: redis://redis:6379/0
-      SERVICE_NAME: metadata_worker
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      TZ: ${TZ:-UTC}
-    command: ["python", "-m", "api.metadata_worker"]
-    networks:
-      - pineapple-net
+  # metadata_worker: DISABLED - Scanner now handles metadata refresh directly
+  #   build:
+  #     context: .
+  #     dockerfile: api/Dockerfile
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - redis
+  #     - db
+  #   environment:
+  #     DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
+  #     REDIS_URL: redis://redis:6379/0
+  #     SERVICE_NAME: metadata_worker
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     TZ: ${TZ:-UTC}
+  #   command: ["python", "-m", "api.metadata_worker"]
+  #   networks:
+  #     - pineapple-net
 
-  redis_worker:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - redis
-      - db
-    environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
-      REDIS_URL: redis://redis:6379/0
-      SERVICE_NAME: redis_worker
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      TZ: ${TZ:-UTC}
-      PYTHONWARNINGS: ignore::UserWarning
-    command: ["python", "-m", "api.redis_worker_runner"]
-    networks:
-      - pineapple-net
+  # redis_worker: DISABLED - Scanner now handles metadata refresh directly
+  #   build:
+  #     context: .
+  #     dockerfile: api/Dockerfile
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - redis
+  #     - db
+  #   environment:
+  #     DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
+  #     REDIS_URL: redis://redis:6379/0
+  #     SERVICE_NAME: redis_worker
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     TZ: ${TZ:-UTC}
+  #     PYTHONWARNINGS: ignore::UserWarning
+  #   command: ["python", "-m", "api.redis_worker_runner"]
+  #   networks:
+  #     - pineapple-net
 
   nginx:
     image: nginx:stable-alpine
