@@ -1105,12 +1105,12 @@ def stats_daily(days: int = 90):
         return { 'items': items }
 
 
-@app.get("/discover/trending")
+@app.get("/api/discover/trending")
 @cache_response(ttl_seconds=300)  # Cache for 5 minutes
 async def get_trending(days: int = Query(default=7, ge=1, le=90)):
     """Get subreddits trending in the last N days (most mentions recently)"""
     with Session(engine) as session:
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = int((datetime.utcnow() - timedelta(days=days)).timestamp())
         
         # Count mentions per subreddit in the time window
         stmt = (
@@ -1118,7 +1118,7 @@ async def get_trending(days: int = Query(default=7, ge=1, le=90)):
                 models.Mention.subreddit_id,
                 func.count(models.Mention.id).label('recent_mentions')
             )
-            .where(models.Mention.created_at >= cutoff)
+            .where(models.Mention.timestamp >= cutoff)
             .group_by(models.Mention.subreddit_id)
             .order_by(desc('recent_mentions'))
             .limit(50)
@@ -1135,7 +1135,6 @@ async def get_trending(days: int = Query(default=7, ge=1, le=90)):
                 ).scalar()
                 items.append({
                     'name': sub.name,
-                    'display_name_prefixed': sub.display_name_prefixed,
                     'title': sub.title,
                     'subscribers': sub.subscribers,
                     'recent_mentions': int(count),
@@ -1146,7 +1145,7 @@ async def get_trending(days: int = Query(default=7, ge=1, le=90)):
         return {'days': days, 'items': items}
 
 
-@app.get("/discover/hidden_gems")
+@app.get("/api/discover/hidden_gems")
 @cache_response(ttl_seconds=300)
 async def get_hidden_gems(max_subscribers: int = Query(default=10000, ge=100, le=100000)):
     """Find active subreddits with low subscriber counts (hidden gems)"""
@@ -1177,7 +1176,6 @@ async def get_hidden_gems(max_subscribers: int = Query(default=10000, ge=100, le
         for sub, mentions in results:
             items.append({
                 'name': sub.name,
-                'display_name_prefixed': sub.display_name_prefixed,
                 'title': sub.title,
                 'subscribers': sub.subscribers,
                 'mentions': int(mentions),
@@ -1187,12 +1185,12 @@ async def get_hidden_gems(max_subscribers: int = Query(default=10000, ge=100, le
         return {'max_subscribers': max_subscribers, 'items': items}
 
 
-@app.get("/discover/fastest_growing")
+@app.get("/api/discover/fastest_growing")
 @cache_response(ttl_seconds=300)
 async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
     """Find subreddits with the biggest increase in mentions recently"""
     with Session(engine) as session:
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = int((datetime.utcnow() - timedelta(days=days)).timestamp())
         
         # Get recent vs older mention counts for each subreddit
         recent_counts = (
@@ -1200,7 +1198,7 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
                 models.Mention.subreddit_id,
                 func.count(models.Mention.id).label('recent')
             )
-            .where(models.Mention.created_at >= cutoff)
+            .where(models.Mention.timestamp >= cutoff)
             .group_by(models.Mention.subreddit_id)
             .subquery()
         )
@@ -1210,7 +1208,7 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
                 models.Mention.subreddit_id,
                 func.count(models.Mention.id).label('older')
             )
-            .where(models.Mention.created_at < cutoff)
+            .where(models.Mention.timestamp < cutoff)
             .group_by(models.Mention.subreddit_id)
             .subquery()
         )
@@ -1243,7 +1241,6 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
                 ).scalar()
                 growth_data.append({
                     'name': sub.name,
-                    'display_name_prefixed': sub.display_name_prefixed,
                     'title': sub.title,
                     'subscribers': sub.subscribers,
                     'recent_mentions': int(recent),
