@@ -607,7 +607,7 @@
           if(descText && descText.length > 32) btn.textContent = descText.slice(0,32) + '...';
           else btn.textContent = descText || '—';
           btn.addEventListener('click', ()=>{
-            openDescriptionModal(s.public_description_html || s.description || '');
+            openDescriptionModal(s.public_description_html || s.description || '', s.last_checked);
           });
           descTd.appendChild(btn);
         }
@@ -738,7 +738,7 @@
           const h = document.querySelector('h1');
           if(h) h.insertBefore(btn, document.getElementById('headerSubCount'));
         }
-        btn.onclick = ()=> openDescriptionModal(infoText);
+        btn.onclick = ()=> openDescriptionModal(infoText, null);
         return btn;
       }
 
@@ -1024,7 +1024,7 @@
     }
 
     // modal for showing long descriptions
-    function openDescriptionModal(htmlText){
+    function openDescriptionModal(htmlText, lastChecked){
       let modal = document.getElementById('descModal');
       if(!modal){
         modal = document.createElement('div');
@@ -1059,7 +1059,17 @@
         content.id = 'descModalContent';
         content.style.whiteSpace = 'pre-wrap';
         content.style.marginTop = '8px';
+        content.style.color = '#1a1a1a';
+        content.style.lineHeight = '1.6';
         inner.appendChild(content);
+        const timestamp = document.createElement('div');
+        timestamp.id = 'descModalTimestamp';
+        timestamp.style.marginTop = '16px';
+        timestamp.style.paddingTop = '12px';
+        timestamp.style.borderTop = '1px solid #e0e0e0';
+        timestamp.style.fontSize = '0.85rem';
+        timestamp.style.color = '#666';
+        inner.appendChild(timestamp);
         modal.appendChild(inner);
         // close modal when clicking outside the inner content
         modal.addEventListener('click', (e) => {
@@ -1068,8 +1078,14 @@
         document.body.appendChild(modal);
       }
       const content = document.getElementById('descModalContent');
+      const timestamp = document.getElementById('descModalTimestamp');
       // escape HTML by using textContent
       content.textContent = htmlText || '';
+      if(lastChecked){
+        timestamp.textContent = 'Last updated: ' + new Date(lastChecked).toLocaleString();
+      } else {
+        timestamp.textContent = '';
+      }
     }
 
     // initial load: restore preferences, then show age confirmation (if needed) and fetch the saved page
