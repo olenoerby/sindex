@@ -75,6 +75,10 @@ if skip_recently_scanned_env:
         SKIP_RECENTLY_SCANNED_HOURS = 0
 else:
     SKIP_RECENTLY_SCANNED_HOURS = 0
+
+# How many seconds to sleep between scan iterations (after metadata refresh completes)
+SCAN_SLEEP_SECONDS = int(os.getenv('SCAN_SLEEP_SECONDS', '300'))
+
 # Number of days to consider subreddit metadata fresh before re-fetching from Reddit.
 # Can be set via `SUBREDDIT_META_CACHE_DAYS`; falls back to legacy `META_CACHE_DAYS` if present.
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
@@ -1748,8 +1752,8 @@ def main_loop():
                 refresh_metadata_phase(METADATA_REFRESH_SECONDS)
                 
                 # After metadata refresh completes, sleep briefly before next scan
-                logger.info('Metadata refresh complete. Sleeping 5 minutes before next scan iteration.')
-                time.sleep(300)
+                logger.info(f'Metadata refresh complete. Sleeping {SCAN_SLEEP_SECONDS} seconds before next scan iteration.')
+                time.sleep(SCAN_SLEEP_SECONDS)
             else:
                 # No scan configs found in database — operate in idle mode:
                 # Just run continuous metadata refresh
