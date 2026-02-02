@@ -56,8 +56,12 @@ Basic settings in `.env`:
 - Additional params in code (`api/app.py`). All endpoints are read-only.
 
 ## Frontend
-- Static UI under `nginx/html/` with search, sort, filters (mentions, subscribers, first-mentioned presets, availability, NSFW/SFW), pagination, and column sorting.
-- Links open to Reddit (configurable listing target).
+- Static UI under `nginx/html/` with multiple views:
+  - **Browse** (`/browse`) - Simplified, mobile-friendly card view for casual browsing with basic filters
+  - **Advanced** (`/`) - Full-featured table view with comprehensive search, sort, filters (mentions, subscribers, first-mentioned presets, availability, NSFW/SFW), and pagination
+  - **Discover** (`/discover`) - Trending and notable subreddit collections
+  - **Analytics** (`/analytics`) - Statistics and charts showing platform metrics
+- Links open to Reddit (configurable listing target in Advanced view)
 
 ## Configuration
 

@@ -8,7 +8,8 @@
 		"chat.tools.terminal.autoApprove": {
 			"docker compose": true,
 			"docker-compose": true,
-			"ssh": true
+			"ssh": true,
+			"git add": true
 		}
 	}
 }
