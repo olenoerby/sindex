@@ -1008,9 +1008,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 # On any comparison error, conservatively treat as unedited
                 pass
 
-    # If theif hasattr(post, 'last_scanned'):
-                post.last_scanned = now
-            re are no new or edited comments, skip this post entirely
+    # If there are no new or edited comments, skip this post entirely
     if not missing and not edited and existing:
         logger.info(f"All comments for post {reddit_id} already scanned and unchanged, skipping post")
         return (True, set())
