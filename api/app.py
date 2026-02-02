@@ -450,18 +450,32 @@ def list_subreddits(
                 subq = subq.filter(avail_conditions[0])
             else:
                 subq = subq.filter(or_(*avail_conditions))
-        elif show_available is False and show_banned is False:
-            # Both explicitly disabled - return empty result
+        elif show_available is False and show_banned is False and show_pending is not True:
+            # Both availability filters explicitly disabled and not filtering by pending - return empty result
             subq = subq.filter(models.Subreddit.id == None)
-        # else: both are None (not specified) - default to showing all (no filter)
+        # else: both are None (not specified) or show_pending will handle filtering - default to showing all (no filter)
         
-        # Handle pending filter separately (not part of OR logic above)
-        # Only apply pending filter when showing available subreddits
-        # Banned/unavailable subreddits typically have NULL metadata, so don't filter them by pending status
-        if show_pending is False and (show_available is True or show_available is None):
-            # Exclude pending subreddits (title is None/NULL) only when showing available
+        # Handle pending filter
+        # When show_pending=True and availability filters are disabled, show only available pending subreddits
+        # When show_pending=False, exclude pending subreddits
+        if show_pending is True and show_available is False and show_banned is False:
+            # Only available pending subreddits (not banned/not found, and title is None/NULL)
+            try:
+                subq = subq.filter(
+                    ((models.Subreddit.is_banned == False) | (models.Subreddit.is_banned == None)) &
+                    ((models.Subreddit.subreddit_found == True) | (models.Subreddit.subreddit_found == None)) &
+                    (models.Subreddit.title == None)
+                )
+            except Exception:
+                subq = subq.filter(
+                    (models.Subreddit.is_banned != True) &
+                    (models.Subreddit.subreddit_found == True) &
+                    (models.Subreddit.title == None)
+                )
+        elif show_pending is False and (show_available is True or show_available is None):
+            # Exclude pending subreddits (title is not None) only when showing available
             subq = subq.filter(models.Subreddit.title != None)
-        # If show_pending is True: include all (both pending and non-pending)
+        # If show_pending is True with other filters: include all (both pending and non-pending)
         # If show_pending is None: default behavior (include all)
         # Note: When show_banned=True, banned subreddits often have NULL metadata,
         # so we don't filter by pending status to avoid excluding them
