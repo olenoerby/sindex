@@ -75,7 +75,6 @@ services:
     networks:
       - pineapple-net
   
-  # Optional: Cloudflare tunnel for exposing to the internet
   # cloudflared:
   #   image: cloudflare/cloudflared:latest
   #   restart: unless-stopped
