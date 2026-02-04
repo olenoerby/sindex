@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /api/
+
+# Disallow crawlers from accessing the /api directory. All other paths are allowed.
