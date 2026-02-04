@@ -1405,10 +1405,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
 
 
 def update_subreddit_metadata(session: Session, sub: models.Subreddit):
-        # Hard skip for /r/u_ subreddits
-        if sub.name.lower().startswith('u_'):
-            logger.info(f"update_subreddit_metadata: hard skip for /r/{sub.name} (u_ user subreddit)")
-            return
+    # Hard skip for /r/u_ subreddits
+    if sub.name.lower().startswith('u_'):
+        logger.info(f"update_subreddit_metadata: hard skip for /r/{sub.name} (u_ user subreddit)")
+        return
     # Always attempt to refresh metadata when called. This scanner configuration
     # updates subreddit metadata immediately after discovery, so do not rely on
     # any time-based caching logic here.
