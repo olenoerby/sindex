@@ -387,24 +387,17 @@ def wait_for_db_startup(initial_delay: float = 10.0, max_retries: int = 5, retry
 
 
 def startup_metadata_prefetch():
-    # Cleanup: Remove /r/u_ subreddits with missing metadata to prevent infinite loop
+    # Force-delete all /r/u_ subreddits to guarantee no looping
     try:
         with Session(engine) as session:
-            from sqlalchemy import and_
-            nuke_q = session.query(models.Subreddit).filter(
-                models.Subreddit.name.ilike('u\_%'),
-                (models.Subreddit.display_name == None) | (models.Subreddit.display_name == ''),
-                (models.Subreddit.title == None) | (models.Subreddit.title == ''),
-                (models.Subreddit.description == None) | (models.Subreddit.description == ''),
-                models.Subreddit.subscribers == None
-            )
+            nuke_q = session.query(models.Subreddit).filter(models.Subreddit.name.ilike('u\_%'))
             count = nuke_q.count()
             if count > 0:
-                logger.warning(f"Deleting {count} /r/u_ subreddits with missing metadata to break refresh loop.")
+                logger.warning(f"Force-deleting {count} /r/u_ subreddits from database to break refresh loop.")
                 nuke_q.delete(synchronize_session=False)
                 session.commit()
     except Exception as e:
-        logger.error(f"Failed to cleanup /r/u_ subreddits: {e}")
+        logger.error(f"Failed to force-delete /r/u_ subreddits: {e}")
     """Refresh missing subreddit metadata at scanner startup.
 
     This fetch prioritizes the most-mentioned subreddits first (descending
