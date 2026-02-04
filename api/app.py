@@ -793,7 +793,10 @@ def metadata_stats():
             
             # Without metadata (missing ANY of: title, subscribers, or description)
             # Matches scanner Priority 2 logic: ANY NULL field = missing metadata
+            # Excludes banned and not-found subreddits (scanner won't fetch metadata for these)
             without_metadata = int(session.query(func.count(models.Subreddit.id)).filter(
+                models.Subreddit.is_banned == False,
+                models.Subreddit.subreddit_found != False,
                 or_(
                     models.Subreddit.title == None,
                     models.Subreddit.subscribers == None,
