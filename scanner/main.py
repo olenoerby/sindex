@@ -925,11 +925,9 @@ def extract_subreddits_from_text(text: str):
     for m in RE_SUB.findall(text or ''):
         nm = normalize(m)
         is_user = is_user_profile(nm)
-        
-        # Skip special subreddits
-        if not is_user and nm in ('all', 'random'):
+        # Skip special subreddits and /r/u_ user profiles
+        if is_user or nm in ('all', 'random'):
             continue
-            
         if 3 <= len(nm) <= 21:
             # Extract context around this mention (±50 chars)
             match_idx = (text or '').lower().find(m.lower())
@@ -939,7 +937,7 @@ def extract_subreddits_from_text(text: str):
                 context = text[start:end].strip()
             else:
                 context = m
-            results[nm] = (m, context[:200], is_user)  # store raw text, context, and user flag
+            results[nm] = (m, context[:200], is_user)
     
     # Extract direct user mentions (/u/username)
     for m in RE_USER.findall(text or ''):
