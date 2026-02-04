@@ -240,7 +240,8 @@ def load_scan_config_from_db(session):
     scan_configs_dict format: {
         'subreddit_name': {
             'allowed_users': set(['user1', 'user2']) or None (for all users),
-            'nsfw_only': True/False
+            'nsfw_only': True/False,
+            'priority': int (1=highest, 2=high, 3=normal, 4=low)
         }
     }
     """
@@ -260,7 +261,8 @@ def load_scan_config_from_db(session):
             
             scan_configs[cfg.subreddit_name] = {
                 'allowed_users': allowed_users,
-                'nsfw_only': cfg.nsfw_only
+                'nsfw_only': cfg.nsfw_only,
+                'priority': getattr(cfg, 'priority', 3)  # Default to 3 if not set
             }
         
         # Load ignored subreddits
@@ -284,7 +286,8 @@ def load_scan_config_from_db(session):
         for sub in _LEGACY_SUBREDDITS_TO_SCAN:
             scan_configs[sub] = {
                 'allowed_users': None,
-                'nsfw_only': True
+                'nsfw_only': True,
+                'priority': 3  # Default priority for legacy configs
             }
         return scan_configs, _LEGACY_IGNORE_SUBREDDITS, set()
 
@@ -1905,9 +1908,13 @@ def main_loop():
                     except Exception:
                         logger.debug('Failed to record scan start time')
                     
-                    for subname, config in scan_configs.items():
+                    # Sort subreddits by priority (lower number = higher priority)
+                    sorted_configs = sorted(scan_configs.items(), key=lambda x: x[1].get('priority', 3))
+                    
+                    for subname, config in sorted_configs:
                         allowed_users = config['allowed_users']
                         nsfw_only = config['nsfw_only']
+                        priority = config.get('priority', 3)
                         
                         # Determine display label for this entity
                         is_user = is_user_profile(subname)
@@ -1943,7 +1950,7 @@ def main_loop():
                             if not children:
                                 break
                             if not after_sub:
-                                logger.info(f"Scanning new posts from {entity_label}")
+                                logger.info(f"Scanning new posts from {entity_label} (priority {priority})")
                             for p in children:
                                 pdata = p.get('data', {})
                                 

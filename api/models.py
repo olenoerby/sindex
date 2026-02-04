@@ -101,6 +101,8 @@ class SubredditScanConfig(Base):
     nsfw_only = Column(Boolean, nullable=False, default=True)
     # Whether this config is active
     active = Column(Boolean, nullable=False, default=True)
+    # Scan priority: 1 (highest), 2 (high), 3 (normal/default), 4 (low)
+    priority = Column(Integer, nullable=False, default=3)
     # timestamps
     created_at = Column(DateTime, server_default=func.now())
 

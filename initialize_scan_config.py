@@ -39,19 +39,22 @@ def initialize_config():
                 'subreddit_name': normalize('wowthissubexists'),
                 'allowed_users': 'WeirdPineapple',  # Only this user's posts
                 'nsfw_only': True,
-                'active': True
+                'active': True,
+                'priority': 1  # Highest priority
             },
             {
                 'subreddit_name': normalize('NSFW411'),
                 'allowed_users': None,  # All users
                 'nsfw_only': True,
-                'active': True
+                'active': True,
+                'priority': 2  # High priority
             },
             {
                 'subreddit_name': normalize('wowthisNSFWsubexists'),
                 'allowed_users': None,  # All users
                 'nsfw_only': True,
-                'active': True
+                'active': True,
+                'priority': 2  # High priority
             }
         ]
         
