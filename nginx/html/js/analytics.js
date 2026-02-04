@@ -74,12 +74,17 @@ function bindControls(){
   buttons.forEach(btn => {
     btn.addEventListener('click', () => {
       const days = Number(btn.dataset.days);
+      if (currentDays === days) return; // Already on this range
       currentDays = days;
-      buttons.forEach(b => b.classList.toggle('active', b === btn));
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
       const displayText = days >= 999999 ? 'Window: All time' : `Window: ${days} days`;
       document.getElementById('window').textContent = displayText;
       updateCardTitles();
       setCookie('sindex_analytics_date_range', days, 365);
+      // Clear cache for this date range to force refresh
+      delete cache.daily[days];
+      delete cache.topBlocks;
       fetchStats();
       fetchDaily(days);
       fetchTopBlocks();
