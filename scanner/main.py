@@ -1493,9 +1493,9 @@ def refresh_metadata_phase(duration_seconds):
             models.Subreddit.is_banned == False,
             models.Subreddit.subreddit_found != False,
             (
-                (models.Subreddit.title == None) | (models.Subreddit.title == '') |
+                (models.Subreddit.title == None) |
                 (models.Subreddit.subscribers == None) |
-                (models.Subreddit.description == None) | (models.Subreddit.description == '')
+                (models.Subreddit.description == None)
             )
         ).count()
         
@@ -1524,16 +1524,16 @@ def refresh_metadata_phase(duration_seconds):
                 priority_desc = "Never scanned"
             
             # Priority 2: Subreddits missing ANY metadata (title, subscribers, or description)
-            # Check for NULL or empty string - we want complete metadata for all subreddits
+            # Only check for NULL - empty strings mean we successfully fetched the data
             if not subreddit_to_refresh:
                 subreddit_to_refresh = session.query(models.Subreddit).filter(
                     models.Subreddit.last_checked != None,
                     models.Subreddit.is_banned == False,
                     models.Subreddit.subreddit_found != False,
                     (
-                        (models.Subreddit.title == None) | (models.Subreddit.title == '') |
+                        (models.Subreddit.title == None) |
                         (models.Subreddit.subscribers == None) |
-                        (models.Subreddit.description == None) | (models.Subreddit.description == '')
+                        (models.Subreddit.description == None)
                     )
                 ).order_by(models.Subreddit.first_mentioned.asc()).first()
                 if subreddit_to_refresh:
@@ -1541,14 +1541,12 @@ def refresh_metadata_phase(duration_seconds):
                     priority_desc = "Missing metadata"
             
             # Priority 3: Subreddits with stale metadata (>24h old)
-            # Only for subreddits that exist and have complete metadata (non-NULL and non-empty)
+            # Only for subreddits that have metadata (non-NULL, empty strings are ok)
             if not subreddit_to_refresh:
                 subreddit_to_refresh = session.query(models.Subreddit).filter(
                     models.Subreddit.title != None,
-                    models.Subreddit.title != '',
                     models.Subreddit.subscribers != None,
                     models.Subreddit.description != None,
-                    models.Subreddit.description != '',
                     models.Subreddit.last_checked != None,
                     models.Subreddit.last_checked < cutoff_24h,
                     models.Subreddit.is_banned == False,
@@ -1596,9 +1594,9 @@ def refresh_metadata_phase(duration_seconds):
                     models.Subreddit.is_banned == False,
                     models.Subreddit.subreddit_found != False,
                     (
-                        (models.Subreddit.title == None) | (models.Subreddit.title == '') |
+                        (models.Subreddit.title == None) |
                         (models.Subreddit.subscribers == None) |
-                        (models.Subreddit.description == None) | (models.Subreddit.description == '')
+                        (models.Subreddit.description == None)
                     )
                 ).count()
                 remaining_msg = f" [{remaining_count} missing metadata remaining]"
@@ -1644,9 +1642,9 @@ def refresh_metadata_phase(duration_seconds):
             models.Subreddit.is_banned == False,
             models.Subreddit.subreddit_found != False,
             (
-                (models.Subreddit.title == None) | (models.Subreddit.title == '') |
+                (models.Subreddit.title == None) |
                 (models.Subreddit.subscribers == None) |
-                (models.Subreddit.description == None) | (models.Subreddit.description == '')
+                (models.Subreddit.description == None)
             )
         ).count()
         
