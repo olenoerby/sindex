@@ -785,10 +785,9 @@ def metadata_stats():
             ).scalar() or 0)
             out['with_subscriber_data'] = with_subscribers
             
-            # With descriptions
+            # With descriptions (empty strings count as having description - just empty)
             with_descriptions = int(session.query(func.count(models.Subreddit.id)).filter(
-                models.Subreddit.description != None,
-                models.Subreddit.description != ''
+                models.Subreddit.description != None
             ).scalar() or 0)
             out['with_descriptions'] = with_descriptions
             
