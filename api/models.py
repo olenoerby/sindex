@@ -41,7 +41,7 @@ class Subreddit(Base):
     created_utc = Column(BigInteger, index=True, nullable=True)
     subscribers = Column(Integer, nullable=True)
     active_users = Column(Integer, nullable=True)
-    description = Column(Text, nullable=True)
+    public_description = Column(Text, nullable=True)
     # additional metadata fields from about.json
     display_name = Column(String(255), nullable=True)
     # timestamp (unix seconds) of the first time a subreddit was mentioned

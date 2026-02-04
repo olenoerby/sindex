@@ -811,7 +811,7 @@ def should_refresh_sub(sub: models.Subreddit, now: datetime = None) -> bool:
         missing = (
             not getattr(sub, 'display_name', None) or
             not getattr(sub, 'title', None) or
-            not getattr(sub, 'description', None) or
+            not getattr(sub, 'public_description', None) or
             (getattr(sub, 'subscribers', None) is None)
         )
         if missing:
@@ -1322,9 +1322,9 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
             except Exception:
                 pass
 
-            # public_description is what we previously used for description
+            # Store Reddit's public_description field
             try:
-                sub.description = data.get('public_description') or sub.description
+                sub.public_description = data.get('public_description') or sub.public_description
             except Exception:
                 pass
 
@@ -1474,7 +1474,7 @@ def refresh_metadata_phase(duration_seconds):
             models.Subreddit.is_banned == False,
             models.Subreddit.subreddit_found != False,
             (models.Subreddit.title == None) | 
-            (models.Subreddit.subscribers_count == None) | 
+            (models.Subreddit.subscribers == None) | 
             (models.Subreddit.public_description == None)
         ).count()
         
@@ -1502,7 +1502,7 @@ def refresh_metadata_phase(duration_seconds):
                 priority_level = 1
                 priority_desc = "Never scanned"
             
-            # Priority 2: Subreddits missing ANY metadata (title, subscribers_count, or public_description)
+            # Priority 2: Subreddits missing ANY metadata (title, subscribers, or public_description)
             # Even if recently checked - we want complete metadata for all subreddits
             if not subreddit_to_refresh:
                 subreddit_to_refresh = session.query(models.Subreddit).filter(
@@ -1510,7 +1510,7 @@ def refresh_metadata_phase(duration_seconds):
                     models.Subreddit.is_banned == False,
                     models.Subreddit.subreddit_found != False,
                     (models.Subreddit.title == None) | 
-                    (models.Subreddit.subscribers_count == None) | 
+                    (models.Subreddit.subscribers == None) | 
                     (models.Subreddit.public_description == None)
                 ).order_by(models.Subreddit.first_mentioned.asc()).first()
                 if subreddit_to_refresh:
@@ -1522,7 +1522,7 @@ def refresh_metadata_phase(duration_seconds):
             if not subreddit_to_refresh:
                 subreddit_to_refresh = session.query(models.Subreddit).filter(
                     models.Subreddit.title != None,
-                    models.Subreddit.subscribers_count != None,
+                    models.Subreddit.subscribers != None,
                     models.Subreddit.public_description != None,
                     models.Subreddit.last_checked != None,
                     models.Subreddit.last_checked < cutoff_24h,
@@ -1571,7 +1571,7 @@ def refresh_metadata_phase(duration_seconds):
                     models.Subreddit.is_banned == False,
                     models.Subreddit.subreddit_found != False,
                     (models.Subreddit.title == None) | 
-                    (models.Subreddit.subscribers_count == None) | 
+                    (models.Subreddit.subscribers == None) | 
                     (models.Subreddit.public_description == None)
                 ).count()
                 remaining_msg = f" [{remaining_count} missing metadata remaining]"
@@ -1617,7 +1617,7 @@ def refresh_metadata_phase(duration_seconds):
             models.Subreddit.is_banned == False,
             models.Subreddit.subreddit_found != False,
             (models.Subreddit.title == None) | 
-            (models.Subreddit.subscribers_count == None) | 
+            (models.Subreddit.subscribers == None) | 
             (models.Subreddit.public_description == None)
         ).count()
         
