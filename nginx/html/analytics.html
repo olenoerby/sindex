@@ -97,6 +97,58 @@
       </div>
     </section>
 
+    <section class="layout">
+      <div class="card">
+        <div class="row-title">
+          <h3 style="margin:0">Volume over time</h3>
+          <small id="timelineSummary">—</small>
+        </div>
+        <div class="chart-wrap"><canvas id="timelineChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="row-title">
+          <h3 style="margin:0">New subreddits per day</h3>
+          <small id="subsSummary">—</small>
+        </div>
+        <div class="chart-wrap" style="height: 320px"><canvas id="subsChart"></canvas></div>
+        <p class="muted" style="margin:10px 0 0">Shows first-time appearances of a subreddit in comments.</p>
+      </div>
+    </section>
+
+    <section class="split">
+      <div class="card">
+        <div class="row-title"><h3 style="margin:0">Top subreddits</h3><small>By total mentions</small></div>
+        <table class="table" id="topSubredditsTable">
+          <thead><tr><th>#</th><th>Subreddit</th><th>Mentions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="row-title"><h3 style="margin:0">Top commenters</h3><small>By mentions recorded</small></div>
+        <table class="table" id="topCommentersTable">
+          <thead><tr><th>#</th><th>User</th><th>Comments</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="split" style="margin-top: 20px;">
+      <div class="card">
+        <div class="row-title"><h3 style="margin:0">Top posts</h3><small>Most-mentioned posts</small></div>
+        <table class="table" id="topPostsTable">
+          <thead><tr><th>#</th><th>Post</th><th>Mentions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="row-title"><h3 style="margin:0">Unique reach</h3><small>Posts with widest subreddit spread</small></div>
+        <table class="table" id="topUniquePostsTable">
+          <thead><tr><th>#</th><th>Post</th><th>Distinct subs</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <section style="margin-top: 40px; margin-bottom: 20px;">
       <h2 style="margin-bottom: 16px;">Metadata Health</h2>
       <p class="muted" style="margin-bottom: 24px;">Statistics about subreddit metadata freshness and completeness.</p>
@@ -157,58 +209,6 @@
         <h3>With descriptions</h3>
         <div class="stat-value" id="metaWithDesc">—</div>
         <div class="stat-sub" id="metaWithDescPct">Have description text</div>
-      </div>
-    </section>
-
-    <section class="layout">
-      <div class="card">
-        <div class="row-title">
-          <h3 style="margin:0">Volume over time</h3>
-          <small id="timelineSummary">—</small>
-        </div>
-        <div class="chart-wrap"><canvas id="timelineChart"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="row-title">
-          <h3 style="margin:0">New subreddits per day</h3>
-          <small id="subsSummary">—</small>
-        </div>
-        <div class="chart-wrap" style="height: 320px"><canvas id="subsChart"></canvas></div>
-        <p class="muted" style="margin:10px 0 0">Shows first-time appearances of a subreddit in comments.</p>
-      </div>
-    </section>
-
-    <section class="split">
-      <div class="card">
-        <div class="row-title"><h3 style="margin:0">Top subreddits</h3><small>By total mentions</small></div>
-        <table class="table" id="topSubredditsTable">
-          <thead><tr><th>#</th><th>Subreddit</th><th>Mentions</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="row-title"><h3 style="margin:0">Top commenters</h3><small>By mentions recorded</small></div>
-        <table class="table" id="topCommentersTable">
-          <thead><tr><th>#</th><th>User</th><th>Comments</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="split" style="margin-top: 20px;">
-      <div class="card">
-        <div class="row-title"><h3 style="margin:0">Top posts</h3><small>Most-mentioned posts</small></div>
-        <table class="table" id="topPostsTable">
-          <thead><tr><th>#</th><th>Post</th><th>Mentions</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="row-title"><h3 style="margin:0">Unique reach</h3><small>Posts with widest subreddit spread</small></div>
-        <table class="table" id="topUniquePostsTable">
-          <thead><tr><th>#</th><th>Post</th><th>Distinct subs</th></tr></thead>
-          <tbody></tbody>
-        </table>
       </div>
     </section>
   </div>
