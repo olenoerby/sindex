@@ -421,7 +421,7 @@ def list_subreddits(
                     func.lower(models.Subreddit.name).like(q_lower),
                     func.lower(func.coalesce(models.Subreddit.display_name, '')).like(q_lower),
                     func.lower(func.coalesce(models.Subreddit.title, '')).like(q_lower),
-                    func.lower(func.coalesce(models.Subreddit.description, '')).like(q_lower)
+                    func.lower(func.coalesce(models.Subreddit.public_description, '')).like(q_lower)
                 )
             )
 
@@ -597,7 +597,7 @@ def list_subreddits(
                 first_mentioned=s.first_mentioned,
                 subscribers=s.subscribers,
                 active_users=s.active_users,
-                description=s.description,
+                description=s.public_description,
                 is_banned=s.is_banned,
                 subreddit_found=s.subreddit_found if hasattr(s, 'subreddit_found') else True,
                 over18=s.is_over18,
@@ -787,8 +787,8 @@ def metadata_stats():
             
             # With descriptions
             with_descriptions = int(session.query(func.count(models.Subreddit.id)).filter(
-                models.Subreddit.description != None,
-                models.Subreddit.description != ''
+                models.Subreddit.public_description != None,
+                models.Subreddit.public_description != ''
             ).scalar() or 0)
             out['with_descriptions'] = with_descriptions
             
@@ -796,7 +796,7 @@ def metadata_stats():
             without_metadata = int(session.query(func.count(models.Subreddit.id)).filter(
                 models.Subreddit.title == None,
                 models.Subreddit.subscribers == None,
-                models.Subreddit.description == None
+                models.Subreddit.public_description == None
             ).scalar() or 0)
             out['without_metadata'] = without_metadata
             
@@ -869,7 +869,7 @@ def get_subreddit(name: str):
         if not s:
             raise HTTPException(status_code=404, detail="Subreddit not found")
         mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
-        return {"name": s.name, "created_utc": s.created_utc, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "last_checked": s.last_checked, "mentions": mentions}
+        return {"name": s.name, "created_utc": s.created_utc, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.public_description, "is_banned": s.is_banned, "last_checked": s.last_checked, "mentions": mentions}
 
 
     @app.post("/subreddits/{name}/refresh")
@@ -926,7 +926,7 @@ def get_subreddit(name: str):
                         s.active_users = active
                     public_desc = data.get('public_description')
                     if public_desc:
-                        s.description = public_desc
+                        s.public_description = public_desc
                         try:
                             s.public_description_html = data.get('public_description_html') or s.public_description_html
                         except Exception:
@@ -953,7 +953,7 @@ def get_subreddit(name: str):
                 session.add(s)
                 session.commit()
                 mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
-                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "subreddit_found": s.subreddit_found, "last_checked": s.last_checked, "mentions": mentions}}
+                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.public_description, "is_banned": s.is_banned, "subreddit_found": s.subreddit_found, "last_checked": s.last_checked, "mentions": mentions}}
             except Exception:
                 session.rollback()
                 raise HTTPException(status_code=500, detail="Failed to refresh subreddit metadata")
@@ -1580,7 +1580,7 @@ def get_tag_subreddits(
             'name': sub.name,
             'title': sub.title,
             'display_name': sub.display_name,
-            'description': sub.description,
+            'description': sub.public_description,
             'subscribers': sub.subscribers,
             'active_users': sub.active_users,
             'created_utc': sub.created_utc,
