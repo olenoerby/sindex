@@ -446,6 +446,13 @@ def startup_metadata_prefetch():
                     sub = s.get(models.Subreddit, sub_id)
                     if not sub:
                         return
+                    # Skip /r/u_ subreddits
+                    try:
+                        if sub.name.lower().startswith('u_'):
+                            logger.info(f"Startup: skipping /r/{sub.name} (u_ user subreddit)")
+                            return
+                    except Exception:
+                        pass
                     try:
                         if getattr(sub, 'is_banned', False):
                             logger.info(f"Startup: skipping banned /r/{sub.name}")
@@ -1162,6 +1169,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 logger.debug('Failed to increment analytics for comment')
 
         for sname, (raw_text, context, is_user) in subnames.items():
+            # Skip /r/u_ subreddits (user profile subreddits)
+            if sname.lower().startswith('u_'):
+                logger.debug(f"Skipping /r/{sname} (u_ user subreddit)")
+                continue
             # Skip ignored subreddits (configured via database)
             # Only apply ignore list to actual subreddits, not user profiles
             if not is_user and sname in ignored_subreddits:
