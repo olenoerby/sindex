@@ -737,9 +737,15 @@ def metadata_stats():
             out['up_to_date'] = up_to_date
             
             # Stale (older than configured METADATA_STALE_HOURS)
+            # Only count subreddits that have metadata and are not banned/not_found (matches scanner Priority 3)
             stale_24h = int(session.query(func.count(models.Subreddit.id)).filter(
+                models.Subreddit.title != None,
+                models.Subreddit.subscribers != None,
+                models.Subreddit.description != None,
+                models.Subreddit.last_checked != None,
                 models.Subreddit.last_checked < threshold_24h,
-                models.Subreddit.last_checked != None
+                models.Subreddit.is_banned == False,
+                models.Subreddit.subreddit_found != False
             ).scalar() or 0)
             out['stale_24h_plus'] = stale_24h
             
