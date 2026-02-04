@@ -1603,6 +1603,26 @@ def refresh_metadata_phase(duration_seconds):
                     )
                 ).count()
                 remaining_msg = f" [{remaining_count} missing metadata remaining]"
+            elif priority_level == 3:
+                remaining_count = session.query(models.Subreddit).filter(
+                    models.Subreddit.title != None,
+                    models.Subreddit.subscribers != None,
+                    models.Subreddit.description != None,
+                    models.Subreddit.last_checked != None,
+                    models.Subreddit.last_checked < cutoff_24h,
+                    models.Subreddit.is_banned == False,
+                    models.Subreddit.subreddit_found != False
+                ).count()
+                remaining_msg = f" [{remaining_count} stale metadata remaining]"
+            elif priority_level == 4:
+                cutoff_7d = datetime.utcnow() - timedelta(days=7)
+                remaining_count = session.query(models.Subreddit).filter(
+                    models.Subreddit.subreddit_found == False,
+                    models.Subreddit.is_banned == False,
+                    models.Subreddit.last_checked != None,
+                    models.Subreddit.last_checked < cutoff_7d
+                ).count()
+                remaining_msg = f" [{remaining_count} not found recheck remaining]"
             
             logger.info(f"Refreshing metadata for /r/{sub_name}{priority_msg}{remaining_msg} ({refreshed_count + 1} processed)")
             
