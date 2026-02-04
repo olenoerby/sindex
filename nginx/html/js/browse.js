@@ -216,7 +216,7 @@ function updatePagination() {
 // Update header count from database total
 function updateHeaderCount(dbTotal) {
   const el = document.getElementById('headerSubCount');
-  if (el && dbTotal > 0) {
+  if (el && dbTotal !== undefined && dbTotal !== null) {
     el.textContent = formatNumber(dbTotal) + ' subreddits scanned';
   }
 }

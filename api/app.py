@@ -383,11 +383,11 @@ def list_subreddits(
         try:
             analytics = session.query(models.Analytics).first()
             if analytics and getattr(analytics, 'total_subreddits', None) is not None:
-                total = int(analytics.total_subreddits or 0)
+                db_total = int(analytics.total_subreddits or 0)
             else:
-                total = int(session.query(func.count(models.Subreddit.id)).scalar() or 0)
+                db_total = int(session.query(func.count(models.Subreddit.id)).scalar() or 0)
         except Exception:
-            total = int(session.query(func.count(models.Subreddit.id)).scalar() or 0)
+            db_total = int(session.query(func.count(models.Subreddit.id)).scalar() or 0)
 
         subq = session.query(models.Subreddit, func.count(models.Mention.id).label('mentions'))\
             .join(models.Mention, models.Mention.subreddit_id == models.Subreddit.id, isouter=True)\
@@ -624,7 +624,7 @@ def list_subreddits(
             ).dict())
 
         has_more = (offset + len(items)) < total
-        return {"items": items, "total": total, "page": page, "per_page": per_page, "has_more": has_more}
+        return {"items": items, "total": total, "page": page, "per_page": per_page, "has_more": has_more, "db_total": db_total}
 
 
 @app.get("/health")
