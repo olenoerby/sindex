@@ -437,8 +437,7 @@ function render(){
     }
   }catch(e){/* ignore DOM errors */}
   // update header count as well (show overall DB total)
-  const hc = document.getElementById('headerSubCount');
-  if(hc) hc.textContent = `${dbTotal} subreddits scanned`;
+  updateHeaderCount(dbTotal);
   updateColumnVisibility(list);
   // Persist current filter/sort/listing preferences so back-navigation preserves state
   try{ savePrefs(); }catch(e){}
@@ -476,8 +475,7 @@ async function refreshTotalCount(){
         document.getElementById('count').textContent = `Showing ${filteredCount} out of ${dbTotal} in database`;
       }
     }catch(e){/* ignore DOM errors */}
-    const hc = document.getElementById('headerSubCount');
-    if(hc) hc.textContent = `${dbTotal} subreddits scanned`;
+    updateHeaderCount(dbTotal);
   }catch(e){ /* ignore errors */ }
 }
 

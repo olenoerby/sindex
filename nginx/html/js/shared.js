@@ -132,3 +132,11 @@ function initWithAgeGate(callback) {
   } catch(e) { /* ignore and show gate */ }
   showAgeGate(callback);
 }
+
+// Update header count from database total
+function updateHeaderCount(dbTotal) {
+  const el = document.getElementById('headerSubCount');
+  if (el && dbTotal !== undefined && dbTotal !== null) {
+    el.textContent = formatNumber(dbTotal) + ' subreddits scanned';
+  }
+}
