@@ -1,7 +1,7 @@
 """Add priority column to subreddit_scan_config
 
-Revision ID: 009
-Revises: 008
+Revision ID: 007
+Revises: 006
 Create Date: 2026-02-04
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '009'
-down_revision = '008'
+revision = '007'
+down_revision = '006'
 branch_labels = None
 depends_on = None
 
