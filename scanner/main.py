@@ -54,17 +54,28 @@ API_RATE_DELAY_SECONDS = 60.0 / API_MAX_CALLS_MINUTE
 METADATA_REFRESH_SECONDS = float(os.getenv('METADATA_REFRESH_SECONDS', '7200'))
 # If true, scanner starts by refreshing metadata before scanning for new mentions
 SCAN_FOR_METADATA_FIRST = os.getenv('SCAN_FOR_METADATA_FIRST', 'false').lower() in ('true', '1', 'yes')
-# How many days back to rescan existing posts for new/edited comments.
-# Set `POST_COMMENT_LOOKBACK_DAYS` to 0 to skip rescanning existing posts.
-# If not set or empty, will rescan ALL posts with no day limit.
-post_lookback_env = os.getenv('POST_COMMENT_LOOKBACK_DAYS', '').strip()
-if post_lookback_env:
+
+# How far back to initially scan posts from source subreddits (posts older than this are skipped entirely)
+# If not set or empty, will scan ALL posts with no age limit.
+post_initial_env = os.getenv('POST_INITIAL_SCAN_DAYS', '').strip()
+if post_initial_env:
     try:
-        POST_COMMENT_LOOKBACK_DAYS = int(post_lookback_env)
+        POST_INITIAL_SCAN_DAYS = int(post_initial_env)
     except Exception:
-        POST_COMMENT_LOOKBACK_DAYS = None
+        POST_INITIAL_SCAN_DAYS = None
 else:
-    POST_COMMENT_LOOKBACK_DAYS = None
+    POST_INITIAL_SCAN_DAYS = None
+
+# How many days back to rescan existing posts for new/edited comments.
+# Set to 0 to skip rescanning existing posts. If not set or empty, will rescan ALL existing posts.
+post_rescan_env = os.getenv('POST_RESCAN_DAYS', '').strip()
+if post_rescan_env:
+    try:
+        POST_RESCAN_DAYS = int(post_rescan_env)
+    except Exception:
+        POST_RESCAN_DAYS = None
+else:
+    POST_RESCAN_DAYS = None
 
 # Skip posts that were scanned within the last X hours (useful for container restarts)
 # Set to 0 to disable this feature and always scan posts.
@@ -941,6 +952,18 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     existing = session.query(models.Post).filter_by(reddit_post_id=reddit_id).first()
     now = datetime.utcnow()
     
+    # Skip posts that are too old to initially scan (not in database yet)
+    if not existing and POST_INITIAL_SCAN_DAYS is not None:
+        try:
+            post_created = int(data.get('created_utc') or 0)
+        except Exception:
+            post_created = 0
+        if post_created:
+            cutoff_ts = int((now - timedelta(days=POST_INITIAL_SCAN_DAYS)).timestamp())
+            if post_created < cutoff_ts:
+                logger.debug(f"Post {reddit_id} is older than {POST_INITIAL_SCAN_DAYS} days (initial scan limit), skipping")
+                return (True, set())
+    
     # Skip posts that were recently scanned (helps avoid reprocessing on container restart)
     if existing and SKIP_RECENTLY_SCANNED_HOURS > 0:
         if hasattr(existing, 'last_scanned') and existing.last_scanned:
@@ -950,16 +973,17 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 logger.debug(f"Post {reddit_id} was scanned {hours_ago:.1f}h ago (within {SKIP_RECENTLY_SCANNED_HOURS}h window), skipping")
                 return (True, set())
     
-    if existing and POST_COMMENT_LOOKBACK_DAYS is not None:
-        # Only skip re-scanning if post exists AND lookback is configured
-        six_months_ago_ts = int((now - timedelta(days=POST_COMMENT_LOOKBACK_DAYS)).timestamp())
+    # Skip re-scanning existing posts that are too old
+    if existing and POST_RESCAN_DAYS is not None:
         try:
             post_created = int(existing.created_utc or 0)
         except Exception:
             post_created = 0
-        if post_created and post_created < six_months_ago_ts:
-            logger.info(f"Post {reddit_id} already in DB and older than {POST_COMMENT_LOOKBACK_DAYS} days, skipping comments")
-            return (True, set())
+        if post_created:
+            cutoff_ts = int((now - timedelta(days=POST_RESCAN_DAYS)).timestamp())
+            if post_created < cutoff_ts:
+                logger.info(f"Post {reddit_id} already in DB and older than {POST_RESCAN_DAYS} days (rescan limit), skipping")
+                return (True, set())
     # Otherwise, process/rescan the post below to capture mentions and detect new/edited comments
 
     # fetch comments first so we can determine whether any are new
