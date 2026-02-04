@@ -1,6 +1,7 @@
 // Analytics page (analytics.html) - Charts and statistics functionality
 
 const buttons = Array.from(document.querySelectorAll('.controls .btn'));
+const refreshBtn = document.getElementById('refreshBtn');
 let currentDays = 30;
 let timelineChart, subsChart;
 const textColor = '#d9e4f5';
@@ -69,6 +70,19 @@ function bindControls(){
       fetchTopBlocks();
     });
   });
+  
+  // Bind refresh button
+  const refreshBtn = document.getElementById('refreshBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      refreshBtn.classList.add('refreshing');
+      fetchStats();
+      fetchMetadataStats();
+      fetchDaily(currentDays);
+      fetchTopBlocks();
+      setTimeout(() => refreshBtn.classList.remove('refreshing'), 1000);
+    });
+  }
 }
 
 async function fetchStats(){
