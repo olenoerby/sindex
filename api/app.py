@@ -791,11 +791,14 @@ def metadata_stats():
             ).scalar() or 0)
             out['with_descriptions'] = with_descriptions
             
-            # Without metadata (no title, subscribers, or description)
+            # Without metadata (missing ANY of: title, subscribers, or description)
+            # Matches scanner Priority 2 logic: ANY NULL field = missing metadata
             without_metadata = int(session.query(func.count(models.Subreddit.id)).filter(
-                models.Subreddit.title == None,
-                models.Subreddit.subscribers == None,
-                models.Subreddit.description == None
+                or_(
+                    models.Subreddit.title == None,
+                    models.Subreddit.subscribers == None,
+                    models.Subreddit.description == None
+                )
             ).scalar() or 0)
             out['without_metadata'] = without_metadata
             
