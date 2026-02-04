@@ -1001,13 +1001,14 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     try:
         if source_subreddit_name:
             sname = normalize(source_subreddit_name)
-            source_sub = session.query(models.Subreddit).filter_by(name=sname).first()
-            if not source_sub:
-                source_sub = models.Subreddit(name=sname)
-                session.add(source_sub)
-                session.commit()
-                # Refresh object to ensure ID is populated after insert
-                session.refresh(source_sub)
+            if not is_user_profile(sname):
+                source_sub = session.query(models.Subreddit).filter_by(name=sname).first()
+                if not source_sub:
+                    source_sub = models.Subreddit(name=sname)
+                    session.add(source_sub)
+                    session.commit()
+                    # Refresh object to ensure ID is populated after insert
+                    session.refresh(source_sub)
     except Exception:
         session.rollback()
     # If post already exists, decide whether to re-scan comments.
@@ -1162,30 +1163,25 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 logger.debug('Failed to increment analytics for comment')
 
         for sname, (raw_text, context, is_user) in subnames.items():
-            # Skip ignored subreddits (configured via database)
-            # Only apply ignore list to actual subreddits, not user profiles
-            if not is_user and sname in ignored_subreddits:
+            # Skip user profiles and do not add them to subreddit table
+            if is_user:
+                logger.debug(f"Skipping user profile: /u/{sname[2:] if sname.startswith('u_') else sname}")
+                continue
+            if sname in ignored_subreddits:
                 logger.debug(f"Skipping ignored subreddit: /r/{sname}")
                 continue
 
-            # Format display name based on type
-            if is_user:
-                # Remove u_ prefix for display
-                username = sname[2:] if sname.startswith('u_') else sname
-                entity_label = f"/u/{username}"
-            else:
-                entity_label = f"/r/{sname}"
-            
+            entity_label = f"/r/{sname}"
             logger.debug(f"Processing mention: {entity_label} (raw={raw_text})")
 
-            # get or create subreddit (stores both subreddits and user profiles)
+            # get or create subreddit (only for real subreddits)
             sub = session.query(models.Subreddit).filter_by(name=sname).first()
             is_new_subreddit = (sub is None)
             if not sub:
                 sub = models.Subreddit(name=sname)
                 session.add(sub)
                 session.commit()
-                logger.debug(f"New {'user' if is_user else 'subreddit'} discovered: {entity_label}")
+                logger.debug(f"New subreddit discovered: {entity_label}")
                 try:
                     increment_analytics(session, subreddits=1)
                 except Exception:
@@ -1194,7 +1190,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 discovered.add(sname)
             else:
                 # Log at debug level for already-known entities to reduce spam
-                logger.debug(f"{'User' if is_user else 'Subreddit'} encountered: {entity_label}")
+                logger.debug(f"Subreddit encountered: {entity_label}")
                 # Always refresh metadata on discovery (schedule for immediate update)
                 try:
                     discovered.add(sname)
@@ -1283,29 +1279,24 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 continue
 
             for sname, (raw_text, context, is_user) in subnames.items():
-                # Skip ignored subreddits (configured via database)
-                # Only apply ignore list to actual subreddits, not user profiles
-                if not is_user and sname in ignored_subreddits:
-                    continue
-                
-                # Format display name based on type
+                # Skip user profiles and do not add them to subreddit table
                 if is_user:
-                    username = sname[2:] if sname.startswith('u_') else sname
-                    entity_label = f"/u/{username}"
-                else:
-                    entity_label = f"/r/{sname}"
-                
-                # get or create subreddit (stores both subreddits and user profiles)
+                    logger.debug(f"Skipping user profile: /u/{sname[2:] if sname.startswith('u_') else sname}")
+                    continue
+                if sname in ignored_subreddits:
+                    continue
+                entity_label = f"/r/{sname}"
+                # get or create subreddit (only for real subreddits)
                 sub = session.query(models.Subreddit).filter_by(name=sname).first()
                 if not sub:
                     sub = models.Subreddit(name=sname)
                     session.add(sub)
                     session.commit()
-                    logger.info(f"New {'user' if is_user else 'subreddit'} discovered (edited comment): {entity_label}")
+                    logger.info(f"New subreddit discovered (edited comment): {entity_label}")
                     try:
                         increment_analytics(session, subreddits=1)
                     except Exception:
-                        logger.debug(f"Failed to increment analytics for new {'user' if is_user else 'subreddit'}")
+                        logger.debug(f"Failed to increment analytics for new subreddit")
                     discovered.add(sname)
                 else:
                     try:
