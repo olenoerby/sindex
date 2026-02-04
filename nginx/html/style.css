@@ -144,10 +144,10 @@ body > h1 {
 }
 
 /* Typography */
-h1, h2, h3 { margin: 0; font-weight: 700; }
-h1 { font-size: 32px; margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; }
-h2 { font-size: 24px; margin-bottom: 12px; }
-h3 { font-size: 16px; margin-bottom: 8px; }
+h1, h2, h3 { margin: 0; font-weight: 700; text-align: left; }
+h1 { font-size: 2.5rem; margin-bottom: 10px; }
+h2 { font-size: 2rem; margin-bottom: 12px; }
+h3 { font-size: 1.2rem; margin-bottom: 8px; }
 
 a { 
   color: var(--accent); 
@@ -194,10 +194,17 @@ p.lead { color: #cdd9ec; max-width: 850px; margin-bottom: 16px; }
 }
 
 /* Layout */
-.page { max-width: 1200px; margin: 0 auto; }
-.container { max-width: 1200px; margin: 0 auto; padding: 0 12px; }
+.page, .container, .discover-container, .browse-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-left: 22px;
+  padding-right: 22px;
+}
 
-header { margin-bottom: 24px; }
+header {
+  margin-bottom: 32px;
+  text-align: left;
+}
 
 /* UI Components */
 .meta { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 14px; }
@@ -669,13 +676,14 @@ th.sticky {
 }
 
 .browse-header {
-  text-align: center;
+  text-align: left;
   margin-bottom: 32px;
 }
 
 .browse-header h1 {
   margin: 0 0 8px 0;
-  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  font-size: clamp(2rem, 4vw, 2.5rem);
+  text-align: left;
 }
 
 .browse-header .subtitle {
@@ -992,7 +1000,7 @@ th.sticky {
    ======================================== */
 
 .discover-container {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 32px 22px 60px;
 }
