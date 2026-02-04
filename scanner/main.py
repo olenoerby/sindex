@@ -49,8 +49,11 @@ logger.propagate = False
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple')
 API_RATE_DELAY_SECONDS = float(os.getenv('API_RATE_DELAY_SECONDS', '6.5'))
 API_MAX_CALLS_MINUTE = int(os.getenv('API_MAX_CALLS_MINUTE', '30'))
-METADATA_REFRESH_HOURS = float(os.getenv('METADATA_REFRESH_HOURS', '2'))
-METADATA_REFRESH_SECONDS = METADATA_REFRESH_HOURS * 3600
+# Read METADATA_REFRESH_SECONDS directly, or fall back to METADATA_REFRESH_HOURS for backwards compatibility
+METADATA_REFRESH_SECONDS = float(os.getenv('METADATA_REFRESH_SECONDS', os.getenv('METADATA_REFRESH_HOURS', '2')))
+# If the value is < 100, assume it's hours and convert to seconds (for backwards compatibility)
+if METADATA_REFRESH_SECONDS < 100:
+    METADATA_REFRESH_SECONDS = METADATA_REFRESH_SECONDS * 3600
 # If true, scanner starts by refreshing metadata before scanning for new mentions
 SCAN_FOR_METADATA_FIRST = os.getenv('SCAN_FOR_METADATA_FIRST', 'false').lower() in ('true', '1', 'yes')
 # How many days back to rescan existing posts for new/edited comments.
