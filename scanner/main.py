@@ -1301,9 +1301,23 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                 sub.is_banned = True
             # save a broad set of metadata fields
             try:
-                sub.display_name = data.get('display_name') or sub.display_name
-                sub.display_name_prefixed = data.get('display_name_prefixed') or sub.display_name_prefixed
-                sub.title = data.get('title') or sub.title
+                display_name = data.get('display_name')
+                if display_name is not None:
+                    sub.display_name = display_name
+                elif sub.display_name is None:
+                    sub.display_name = ''
+                    
+                display_name_prefixed = data.get('display_name_prefixed')
+                if display_name_prefixed is not None:
+                    sub.display_name_prefixed = display_name_prefixed
+                elif sub.display_name_prefixed is None:
+                    sub.display_name_prefixed = ''
+                    
+                title = data.get('title')
+                if title is not None:
+                    sub.title = title
+                elif sub.title is None:
+                    sub.title = ''
             except Exception:
                 pass
 
