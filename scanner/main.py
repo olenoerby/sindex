@@ -254,8 +254,14 @@ def load_scan_config_from_db(session):
         for cfg in configs:
             allowed_users = None
             if cfg.allowed_users:
-                # Parse comma-separated list
-                users = [u.strip().lower() for u in cfg.allowed_users.split(',') if u.strip()]
+                # Parse comma-separated list and ensure usernames are prefixed with 'u_'
+                users = []
+                for u in cfg.allowed_users.split(','):
+                    uname = u.strip().lower()
+                    if uname:
+                        if not uname.startswith('u_'):
+                            uname = f'u_{uname}'
+                        users.append(uname)
                 if users:
                     allowed_users = set(users)
             
