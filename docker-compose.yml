@@ -14,8 +14,6 @@ services:
     networks:
       - pineapple-net
 
-    
-
   api:
     build:
       context: .
@@ -75,6 +73,8 @@ services:
       - "5050:80"
     depends_on:
       - db
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
     networks:
       - pineapple-net
 
@@ -106,6 +106,7 @@ services:
 
 volumes:
   db-data:
+  pgadmin-data:
 
 networks:
   pineapple-net:
