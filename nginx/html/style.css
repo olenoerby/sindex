@@ -1084,6 +1084,18 @@ th.sticky {
   font-size: 12px;
 }
 
+/* place the per-section control row under the day selector */
+.control-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px; /* moves radios down one line */
+}
+
+@media (max-width: 800px) {
+  .control-row { flex-direction: column; align-items: stretch; }
+}
+
 .time-btn {
   padding: 6px 12px;
   border: 1px solid var(--border);
