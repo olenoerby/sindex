@@ -42,7 +42,12 @@ def _safe_int(v):
 
 def refresh_subreddit_job(name: str):
     """Background job: fetch /r/{name}/about.json and update/create DB row."""
-    lname = name.lower().strip()
+    # Normalize and skip user profiles
+    from scanner.main import normalize, is_user_profile
+    lname = normalize(name)
+    if is_user_profile(lname):
+        logger.info(f"Skipping background refresh for user profile: /u/{lname[2:]}")
+        return
     try:
         with Session(engine) as session:
             sub = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()

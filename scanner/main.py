@@ -191,7 +191,30 @@ RE_SUB = re.compile(r"(?:/r/|\br/|https?://(?:www\.)?reddit\.com/r/)([A-Za-z0-9_
 RE_USER = re.compile(r"(?:/u/|\bu/|https?://(?:www\.)?reddit\.com/u(?:ser)?/)([A-Za-z0-9_-]{3,20})")
 
 def normalize(name: str) -> str:
-    return name.lower().strip().lstrip('/').lstrip('r/').lstrip('u/').replace('\n','')
+    """Normalize subreddit or user reference into storage form.
+
+    Rules:
+    - Lowercase and strip whitespace/newlines
+    - Accept forms: "r/name", "/r/name", "name" -> "name"
+    - Accept forms: "u/name", "/u/name" -> "u_name"
+    - Preserve "u_name" form (user profiles) and do NOT strip the underscore
+    """
+    if not name:
+        return ''
+    n = str(name).lower().strip().replace('\n', '')
+    # remove leading slashes
+    while n.startswith('/'):
+        n = n[1:]
+    # r/ prefix
+    if n.startswith('r/'):
+        return n[2:]
+    # u/ prefix -> convert to u_username
+    if n.startswith('u/'):
+        return 'u_' + n[2:]
+    # already in u_username form
+    if n.startswith('u_'):
+        return n
+    return n
 
 def is_user_profile(name: str) -> bool:
     """Check if a normalized name represents a user profile (u_ prefix)."""
@@ -265,11 +288,8 @@ def load_scan_config_from_db(session):
                 if users:
                     allowed_users = set(users)
             
-            # Normalize subreddit_name: always lowercase, and force u_ prefix for user profiles
+            # Normalize subreddit_name: always lowercase, and preserve u_ prefix for user profiles
             subname = normalize(cfg.subreddit_name)
-            if cfg.subreddit_name.strip().lower().startswith(('u/', '/u/')):
-                if not subname.startswith('u_'):
-                    subname = 'u_' + subname.lstrip('_')
             scan_configs[subname] = {
                 'allowed_users': allowed_users,
                 'nsfw_only': cfg.nsfw_only,

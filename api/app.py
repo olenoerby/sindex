@@ -928,7 +928,11 @@ def get_subreddit(name: str):
             if not provided_key or provided_key != ENV_API_KEY:
                 raise HTTPException(status_code=403, detail='Invalid or missing API key')
         
-        lname = name.lower().strip()
+        # Normalize and prevent refreshing user profiles as subreddits
+        from scanner.main import normalize, is_user_profile
+        lname = normalize(name)
+        if is_user_profile(lname):
+            raise HTTPException(status_code=400, detail='User profiles are not subreddits')
         with Session(engine) as session:
             s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
             if not s:
