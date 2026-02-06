@@ -1018,7 +1018,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
             if source_subreddit_name.strip().lower().startswith(('u/', '/u/')):
                 if not sname.startswith('u_'):
                     sname = 'u_' + sname.lstrip('_')
-            if not is_user_profile(sname):
+            # Do NOT add user profiles (u_) to the subreddit table
+            if is_user_profile(sname):
+                source_sub = None
+            else:
                 source_sub = session.query(models.Subreddit).filter_by(name=sname).first()
                 if not source_sub:
                     source_sub = models.Subreddit(name=sname)
@@ -1179,6 +1182,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
             except Exception:
                 logger.debug('Failed to increment analytics for comment')
 
+
         for sname, (raw_text, context, is_user) in subnames.items():
             # Skip user profiles and do not add them to subreddit table
             if is_user:
@@ -1198,10 +1202,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 sub = models.Subreddit(name=sname)
                 session.add(sub)
                 session.commit()
-                if sname.startswith('u_'):
-                    logger.info(f"New user profile discovered and added to subreddit table: /u/{sname[2:]}")
-                else:
-                    logger.info(f"New subreddit discovered and added to subreddit table: /r/{sname}")
+                logger.info(f"New subreddit discovered and added to subreddit table: /r/{sname}")
                 logger.debug(f"New subreddit discovered: {entity_label}")
                 try:
                     increment_analytics(session, subreddits=1)
