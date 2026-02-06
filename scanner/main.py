@@ -930,11 +930,17 @@ def extract_subreddits_from_text(text: str):
     # Extract subreddit mentions (including /r/u_ user profiles)
     for m in RE_SUB.findall(text or ''):
         nm = normalize(m)
-        is_user = is_user_profile(nm)
-        # Skip special subreddits and /r/u_ user profiles
-        if is_user or nm in ('all', 'random'):
+        # If this is a user profile subreddit (starts with u_ or u-), always store as u_username
+        if nm.startswith('u_') or nm.startswith('u-'):
+            usernm = 'u_' + nm[2:] if not nm.startswith('u_') else nm
+            is_user = True
+        else:
+            usernm = nm
+            is_user = False
+        # Skip special subreddits
+        if usernm in ('all', 'random'):
             continue
-        if 3 <= len(nm) <= 21:
+        if 3 <= len(usernm) <= 21 or (is_user and 5 <= len(usernm) <= 23):
             # Extract context around this mention (±50 chars)
             match_idx = (text or '').lower().find(m.lower())
             if match_idx >= 0:
@@ -943,17 +949,13 @@ def extract_subreddits_from_text(text: str):
                 context = text[start:end].strip()
             else:
                 context = m
-            results[nm] = (m, context[:200], is_user)
+            results[usernm] = (m, context[:200], is_user)
     
     # Extract direct user mentions (/u/username)
     for m in RE_USER.findall(text or ''):
         nm = 'u_' + normalize(m)  # Store as u_username for consistency
-        
         if 5 <= len(nm) <= 23:  # u_ + 3-20 char username
-            # Skip if already found as /r/u_username
-            if nm in results:
-                continue
-            
+            # Always overwrite or add user mention as u_username
             # Extract context around this mention (±50 chars)
             match_idx = (text or '').lower().find(m.lower())
             if match_idx >= 0:
