@@ -12,6 +12,6 @@ redis==5.0.1
 rq==1.16.2
 pytest==8.0.0
 praw==7.7.0
-requests==2.31.0
+requests==2.32.4
 beautifulsoup4==4.12.2
 tqdm==4.66.1
