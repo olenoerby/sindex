@@ -3,7 +3,7 @@
 let currentData = {
   trending: { days: 7, data: null },
   gems: { max_subscribers: 10000, data: null },
-  growing: { days: 30, data: null }
+  growing: { days: 30, min_recent: 5, min_growth: 1.5, data: null }
 };
 
 // Create subreddit card HTML
@@ -84,15 +84,16 @@ async function loadHiddenGems(maxSubs = 10000) {
   }
 }
 
-async function loadFastestGrowing(days = 30) {
+async function loadFastestGrowing(days = 30, min_recent = 5, min_growth = 1.5) {
   const container = document.getElementById('growing-list');
   container.innerHTML = '<div class="loading">Loading...</div>';
-  
+
   try {
-    const response = await fetch(`/api/discover/fastest_growing?days=${days}`);
+    const qs = `days=${days}&min_recent=${min_recent}&min_growth=${min_growth}`;
+    const response = await fetch(`/api/discover/fastest_growing?${qs}`);
     const data = await response.json();
-    currentData.growing = { days, data };
-    
+    currentData.growing = { days, min_recent, min_growth, data };
+
     if (data.items && data.items.length > 0) {
       container.innerHTML = data.items.slice(0, 12).map(sub => createSubredditCard(sub, 'growing')).join('');
     } else {
@@ -121,7 +122,12 @@ document.querySelectorAll('.time-btn').forEach(btn => {
     } else if (section === 'gems' && maxSubs) {
       loadHiddenGems(parseInt(maxSubs));
     } else if (section === 'growing' && days) {
-      loadFastestGrowing(parseInt(days));
+      // read radio values for min_recent and min_growth
+      const mr = document.querySelector('input[name="min_recent"]:checked');
+      const mg = document.querySelector('input[name="min_growth"]:checked');
+      const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
+      const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
+      loadFastestGrowing(parseInt(days), min_recent, min_growth);
     }
   });
 });
@@ -130,5 +136,26 @@ document.querySelectorAll('.time-btn').forEach(btn => {
 initWithAgeGate(() => {
   loadTrending(7);
   loadHiddenGems(10000);
-  loadFastestGrowing(30);
+  // pick initial radio values
+  const mr0 = document.querySelector('input[name="min_recent"]:checked');
+  const mg0 = document.querySelector('input[name="min_growth"]:checked');
+  const initialMinRecent = mr0 ? parseInt(mr0.value) : currentData.growing.min_recent;
+  const initialMinGrowth = mg0 ? parseFloat(mg0.value) : currentData.growing.min_growth;
+  loadFastestGrowing(30, initialMinRecent, initialMinGrowth);
+
+  // reload when radios change
+  document.querySelectorAll('input[name="min_recent"]').forEach(r => r.addEventListener('change', () => {
+    const mg = document.querySelector('input[name="min_growth"]:checked');
+    const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
+    const mr = document.querySelector('input[name="min_recent"]:checked');
+    const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
+    loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
+  }));
+  document.querySelectorAll('input[name="min_growth"]').forEach(r => r.addEventListener('change', () => {
+    const mr = document.querySelector('input[name="min_recent"]:checked');
+    const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
+    const mg = document.querySelector('input[name="min_growth"]:checked');
+    const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
+    loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
+  }));
 });

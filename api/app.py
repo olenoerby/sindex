@@ -1388,11 +1388,20 @@ async def get_hidden_gems(max_subscribers: int = Query(default=10000, ge=100, le
 
 @app.get("/api/discover/fastest_growing")
 @cache_response(ttl_seconds=300)
-async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
-    """Find subreddits with the biggest increase in mentions recently"""
+async def get_fastest_growing(
+    days: int = Query(default=30, ge=7, le=90),
+    min_recent: int = Query(default=5, ge=1, le=100),
+    min_growth: float = Query(default=1.5, ge=1.0, le=10.0)
+):
+    """Find subreddits with the biggest increase in mentions recently.
+
+    Optional query parameters:
+    - `min_recent`: minimum recent mentions required (default 5)
+    - `min_growth`: minimum growth ratio required (default 1.5)
+    """
     with Session(engine) as session:
         cutoff = int((datetime.utcnow() - timedelta(days=days)).timestamp())
-        
+
         # Get recent vs older mention counts for each subreddit
         recent_counts = (
             select(
@@ -1403,7 +1412,7 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
             .group_by(models.Mention.subreddit_id)
             .subquery()
         )
-        
+
         older_counts = (
             select(
                 models.Mention.subreddit_id,
@@ -1413,7 +1422,7 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
             .group_by(models.Mention.subreddit_id)
             .subquery()
         )
-        
+
         # Calculate growth ratio
         stmt = (
             select(
@@ -1426,17 +1435,17 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
             .where(
                 models.Subreddit.subreddit_found == True,
                 models.Subreddit.is_banned == False,
-                recent_counts.c.recent >= 5  # At least 5 recent mentions
+                recent_counts.c.recent >= min_recent
             )
         )
-        
+
         results = session.execute(stmt).all()
-        
+
         # Calculate growth and sort
         growth_data = []
         for sub, recent, older in results:
             growth_ratio = recent / max(older, 1)
-            if growth_ratio > 1.5:  # At least 50% growth
+            if growth_ratio > float(min_growth):
                 total = session.query(func.count(models.Mention.id)).filter(
                     models.Mention.subreddit_id == sub.id
                 ).scalar()
@@ -1450,11 +1459,11 @@ async def get_fastest_growing(days: int = Query(default=30, ge=7, le=90)):
                     'total_mentions': int(total or 0),
                     'is_over18': sub.is_over18
                 })
-        
+
         # Sort by growth ratio
         growth_data.sort(key=lambda x: x['growth_ratio'], reverse=True)
-        
-        return {'days': days, 'items': growth_data[:50]}
+
+        return {'days': days, 'min_recent': min_recent, 'min_growth': float(min_growth), 'items': growth_data[:50]}
 
 
 # Removed endpoint: GET /subreddits/count — use GET /stats for aggregated counts instead.

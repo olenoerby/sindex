@@ -82,6 +82,22 @@
           <button class="time-btn" data-section="growing" data-days="14">14d</button>
           <button class="time-btn active" data-section="growing" data-days="30">30d</button>
           <button class="time-btn" data-section="growing" data-days="60">60d</button>
+
+          <div class="radio-group">
+            <span class="radio-label">Min recent:</span>
+            <label><input type="radio" name="min_recent" value="3">3</label>
+            <label><input type="radio" name="min_recent" value="5" checked>5</label>
+            <label><input type="radio" name="min_recent" value="10">10</label>
+          </div>
+
+          <div class="radio-group">
+            <span class="radio-label">Min growth:</span>
+            <label><input type="radio" name="min_growth" value="1.5" checked>1.5x</label>
+            <label><input type="radio" name="min_growth" value="1.4">1.4x</label>
+            <label><input type="radio" name="min_growth" value="1.3">1.3x</label>
+            <label><input type="radio" name="min_growth" value="1.2">1.2x</label>
+            <label><input type="radio" name="min_growth" value="1.1">1.1x</label>
+          </div>
         </div>
       </div>
       <div id="growing-list" class="subreddit-grid">
