@@ -265,7 +265,12 @@ def load_scan_config_from_db(session):
                 if users:
                     allowed_users = set(users)
             
-            scan_configs[cfg.subreddit_name] = {
+            # Normalize subreddit_name: always lowercase, and force u_ prefix for user profiles
+            subname = normalize(cfg.subreddit_name)
+            if cfg.subreddit_name.strip().lower().startswith(('u/', '/u/')):
+                if not subname.startswith('u_'):
+                    subname = 'u_' + subname.lstrip('_')
+            scan_configs[subname] = {
                 'allowed_users': allowed_users,
                 'nsfw_only': cfg.nsfw_only,
                 'priority': getattr(cfg, 'priority', 3)  # Default to 3 if not set
