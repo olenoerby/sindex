@@ -1193,6 +1193,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 sub = models.Subreddit(name=sname)
                 session.add(sub)
                 session.commit()
+                if sname.startswith('u_'):
+                    logger.info(f"New user profile discovered and added to subreddit table: /u/{sname[2:]}")
+                else:
+                    logger.info(f"New subreddit discovered and added to subreddit table: /r/{sname}")
                 logger.debug(f"New subreddit discovered: {entity_label}")
                 try:
                     increment_analytics(session, subreddits=1)
