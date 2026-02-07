@@ -629,8 +629,29 @@ const filterPop = document.getElementById('filterPop');
 if(filterBtn && filterPop){
   filterBtn.addEventListener('click', (ev)=>{
     ev.stopPropagation();
-    const newState = (filterPop.style.display === 'block') ? 'none' : 'block';
-    filterPop.style.display = newState;
+    // Toggle visibility: when opening, position the popout below the button
+    if(filterPop.style.display === 'block'){
+      filterPop.style.display = 'none';
+      return;
+    }
+    try{
+      const rect = filterBtn.getBoundingClientRect();
+      // Account for page scroll when positioning
+      const top = rect.bottom + window.scrollY + 8; // small gap
+      // Prefer keeping right offset if defined, otherwise align to button
+      if(filterPop.style.right) {
+        filterPop.style.top = top + 'px';
+      } else {
+        // place flush with button's left edge if right not used
+        const left = rect.left + window.scrollX;
+        filterPop.style.left = (left) + 'px';
+        filterPop.style.top = top + 'px';
+      }
+    }catch(e){
+      // fallback to a reasonable offset
+      filterPop.style.top = '84px';
+    }
+    filterPop.style.display = 'block';
     // filters now contain the Options section directly
   });
   // close when clicking outside
