@@ -6,13 +6,12 @@ let currentData = {
   growing: { days: 30, min_recent: 5, min_growth: 1.5, data: null }
 };
 
-// Per-section NSFW/SFW filter state: 'all' | 'nsfw' | 'sfw'
-const sectionFilter = { trending: 'nsfw', gems: 'nsfw', growing: 'nsfw' };
+// Global NSFW/SFW filter for all sections: 'all' | 'nsfw' | 'sfw'
+let globalFilter = 'nsfw';
 
-function _filterQueryFor(section) {
-  const state = sectionFilter[section] || 'all';
-  if (state === 'nsfw') return '&show_nsfw=true&show_non_nsfw=false';
-  if (state === 'sfw') return '&show_nsfw=false&show_non_nsfw=true';
+function _filterQueryFor() {
+  if (globalFilter === 'nsfw') return '&show_nsfw=true&show_non_nsfw=false';
+  if (globalFilter === 'sfw') return '&show_nsfw=false&show_non_nsfw=true';
   return '&show_nsfw=true&show_non_nsfw=true';
 }
 
@@ -59,7 +58,7 @@ async function loadTrending(days = 7) {
   container.innerHTML = '<div class="loading">Loading...</div>';
 
   try {
-    const qs = `days=${days}` + _filterQueryFor('trending');
+    const qs = `days=${days}` + _filterQueryFor();
     const response = await fetch(`/api/discover/trending?${qs}`);
     const data = await response.json();
     currentData.trending = { days, data };
@@ -80,7 +79,7 @@ async function loadHiddenGems(maxSubs = 10000) {
   container.innerHTML = '<div class="loading">Loading...</div>';
 
   try {
-    const qs = `max_subscribers=${maxSubs}` + _filterQueryFor('gems');
+    const qs = `max_subscribers=${maxSubs}` + _filterQueryFor();
     const response = await fetch(`/api/discover/hidden_gems?${qs}`);
     const data = await response.json();
     currentData.gems = { max_subscribers: maxSubs, data };
@@ -101,7 +100,7 @@ async function loadFastestGrowing(days = 30, min_recent = 5, min_growth = 1.5) {
   container.innerHTML = '<div class="loading">Loading...</div>';
 
   try {
-    const qs = `days=${days}&min_recent=${min_recent}&min_growth=${min_growth}` + _filterQueryFor('growing');
+    const qs = `days=${days}&min_recent=${min_recent}&min_growth=${min_growth}` + _filterQueryFor();
     const response = await fetch(`/api/discover/fastest_growing?${qs}`);
     const data = await response.json();
     currentData.growing = { days, min_recent, min_growth, data };
@@ -173,35 +172,31 @@ initWithAgeGate(() => {
     });
   });
 
-  // Per-section filter buttons: cycle state and reload corresponding section
+  // Global filter button behavior: clicking any discover-filter cycles All/NSFW/SFW
+  const states = ['all','nsfw','sfw'];
+  function updateAllFilterButtons() {
+    const labels = { all: 'All', nsfw: 'NSFW Only', sfw: 'Safe only' };
+    document.querySelectorAll('.discover-filter').forEach(b => {
+      b.textContent = labels[globalFilter] || 'All';
+      if (globalFilter === 'nsfw') b.classList.add('active'); else b.classList.remove('active');
+    });
+  }
+
+  updateAllFilterButtons();
+
   document.querySelectorAll('.discover-filter').forEach(btn => {
-    const section = btn.dataset.section;
-    const states = ['all','nsfw','sfw'];
-    function updateBtn() {
-      const labels = { all: 'All', nsfw: 'NSFW Only', sfw: 'Safe only' };
-      const state = sectionFilter[section] || 'all';
-      btn.textContent = labels[state] || 'All';
-      if (state === 'nsfw') btn.classList.add('active'); else btn.classList.remove('active');
-    }
-    updateBtn();
     btn.addEventListener('click', () => {
-      const cur = sectionFilter[section] || 'all';
-      const idx = Math.max(0, states.indexOf(cur));
-      const next = states[(idx + 1) % states.length];
-      sectionFilter[section] = next;
-      updateBtn();
-      // reload section with same parameters
-      if (section === 'trending') {
-        loadTrending(currentData.trending.days || 7);
-      } else if (section === 'gems') {
-        loadHiddenGems(currentData.gems.max_subscribers || 10000);
-      } else if (section === 'growing') {
-        const mr = document.querySelector('.toggle-group[data-name="min_recent"] .toggle-btn.active');
-        const mg = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
-        const min_recent = mr ? parseInt(mr.dataset.value) : currentData.growing.min_recent;
-        const min_growth = mg ? parseFloat(mg.dataset.value) : currentData.growing.min_growth;
-        loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
-      }
+      const idx = Math.max(0, states.indexOf(globalFilter));
+      globalFilter = states[(idx + 1) % states.length];
+      updateAllFilterButtons();
+      // reload all sections with current parameters
+      loadTrending(currentData.trending.days || 7);
+      loadHiddenGems(currentData.gems.max_subscribers || 10000);
+      const mr = document.querySelector('.toggle-group[data-name="min_recent"] .toggle-btn.active');
+      const mg = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
+      const min_recent = mr ? parseInt(mr.dataset.value) : currentData.growing.min_recent;
+      const min_growth = mg ? parseFloat(mg.dataset.value) : currentData.growing.min_growth;
+      loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
     });
   });
 });
