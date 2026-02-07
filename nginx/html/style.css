@@ -1117,6 +1117,67 @@ th.sticky {
   color: #e9fffb;
 }
 
+/* Discover filters (per-section) */
+.discover-filter {
+  margin-left: 12px;
+  padding: 8px 12px;
+  border-radius: 18px;
+  font-size: 13px;
+}
+
+/* Fastest Growing controls (button groups replacing radios) */
+.fg-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.toggle-group .toggle-label {
+  color: var(--muted);
+  font-size: 13px;
+  white-space:nowrap;
+}
+
+.toggle-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toggle-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.toggle-btn.active {
+  background: linear-gradient(120deg, rgba(30,198,179,0.28), rgba(30,198,179,0.08));
+  border-color: rgba(30,198,179,0.4);
+  color: #e9fffb;
+}
+
+@media (max-width: 720px) {
+  .fg-controls { flex-direction: column; align-items: stretch; }
+  .discover-filter { margin-left: 0; margin-top: 8px; }
+  .toggle-group { width: 100%; }
+  .toggle-buttons { justify-content: flex-start; }
+}
+
 .subreddit-card {
   background: rgba(255,255,255,0.03);
   border: 1px solid var(--border);

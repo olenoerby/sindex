@@ -6,6 +6,16 @@ let currentData = {
   growing: { days: 30, min_recent: 5, min_growth: 1.5, data: null }
 };
 
+// Per-section NSFW/SFW filter state: 'all' | 'nsfw' | 'sfw'
+const sectionFilter = { trending: 'nsfw', gems: 'nsfw', growing: 'nsfw' };
+
+function _filterQueryFor(section) {
+  const state = sectionFilter[section] || 'all';
+  if (state === 'nsfw') return '&show_nsfw=true&show_non_nsfw=false';
+  if (state === 'sfw') return '&show_nsfw=false&show_non_nsfw=true';
+  return '&show_nsfw=true&show_non_nsfw=true';
+}
+
 // Create subreddit card HTML
 function createSubredditCard(sub, type = 'default') {
   const badge = type === 'trending' ? `<span class="badge">Hot</span>` :
@@ -47,12 +57,13 @@ function createSubredditCard(sub, type = 'default') {
 async function loadTrending(days = 7) {
   const container = document.getElementById('trending-list');
   container.innerHTML = '<div class="loading">Loading...</div>';
-  
+
   try {
-    const response = await fetch(`/api/discover/trending?days=${days}`);
+    const qs = `days=${days}` + _filterQueryFor('trending');
+    const response = await fetch(`/api/discover/trending?${qs}`);
     const data = await response.json();
     currentData.trending = { days, data };
-    
+
     if (data.items && data.items.length > 0) {
       container.innerHTML = data.items.slice(0, 12).map(sub => createSubredditCard(sub, 'trending')).join('');
     } else {
@@ -67,12 +78,13 @@ async function loadTrending(days = 7) {
 async function loadHiddenGems(maxSubs = 10000) {
   const container = document.getElementById('gems-list');
   container.innerHTML = '<div class="loading">Loading...</div>';
-  
+
   try {
-    const response = await fetch(`/api/discover/hidden_gems?max_subscribers=${maxSubs}`);
+    const qs = `max_subscribers=${maxSubs}` + _filterQueryFor('gems');
+    const response = await fetch(`/api/discover/hidden_gems?${qs}`);
     const data = await response.json();
     currentData.gems = { max_subscribers: maxSubs, data };
-    
+
     if (data.items && data.items.length > 0) {
       container.innerHTML = data.items.slice(0, 12).map(sub => createSubredditCard(sub, 'gem')).join('');
     } else {
@@ -89,7 +101,7 @@ async function loadFastestGrowing(days = 30, min_recent = 5, min_growth = 1.5) {
   container.innerHTML = '<div class="loading">Loading...</div>';
 
   try {
-    const qs = `days=${days}&min_recent=${min_recent}&min_growth=${min_growth}`;
+    const qs = `days=${days}&min_recent=${min_recent}&min_growth=${min_growth}` + _filterQueryFor('growing');
     const response = await fetch(`/api/discover/fastest_growing?${qs}`);
     const data = await response.json();
     currentData.growing = { days, min_recent, min_growth, data };
@@ -122,11 +134,11 @@ document.querySelectorAll('.time-btn').forEach(btn => {
     } else if (section === 'gems' && maxSubs) {
       loadHiddenGems(parseInt(maxSubs));
     } else if (section === 'growing' && days) {
-      // read radio values for min_recent and min_growth
-      const mr = document.querySelector('input[name="min_recent"]:checked');
-      const mg = document.querySelector('input[name="min_growth"]:checked');
-      const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
-      const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
+      // read toggle button values for min_recent and min_growth
+      const mrBtn = document.querySelector('.toggle-group[data-name="min_recent"] .toggle-btn.active');
+      const mgBtn = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
+      const min_recent = mrBtn ? parseInt(mrBtn.dataset.value) : currentData.growing.min_recent;
+      const min_growth = mgBtn ? parseFloat(mgBtn.dataset.value) : currentData.growing.min_growth;
       loadFastestGrowing(parseInt(days), min_recent, min_growth);
     }
   });
@@ -136,61 +148,60 @@ document.querySelectorAll('.time-btn').forEach(btn => {
 initWithAgeGate(() => {
   loadTrending(7);
   loadHiddenGems(10000);
-  // pick initial radio values
-  const mr0 = document.querySelector('input[name="min_recent"]:checked');
-  const mg0 = document.querySelector('input[name="min_growth"]:checked');
-  const initialMinRecent = mr0 ? parseInt(mr0.value) : currentData.growing.min_recent;
-  const initialMinGrowth = mg0 ? parseFloat(mg0.value) : currentData.growing.min_growth;
+
+  // pick initial toggle values
+  const mrBtn0 = document.querySelector('.toggle-group[data-name="min_recent"] .toggle-btn.active');
+  const mgBtn0 = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
+  const initialMinRecent = mrBtn0 ? parseInt(mrBtn0.dataset.value) : currentData.growing.min_recent;
+  const initialMinGrowth = mgBtn0 ? parseFloat(mgBtn0.dataset.value) : currentData.growing.min_growth;
   loadFastestGrowing(30, initialMinRecent, initialMinGrowth);
 
-  // reload when radios change
-  document.querySelectorAll('input[name="min_recent"]').forEach(r => r.addEventListener('change', () => {
-    const mg = document.querySelector('input[name="min_growth"]:checked');
-    const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
-    const mr = document.querySelector('input[name="min_recent"]:checked');
-    const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
-    loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
-  }));
-  document.querySelectorAll('input[name="min_growth"]').forEach(r => r.addEventListener('change', () => {
-    const mr = document.querySelector('input[name="min_recent"]:checked');
-    const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
-    const mg = document.querySelector('input[name="min_growth"]:checked');
-    const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
-    loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
-  }));
+  // Toggle button handlers for fastest growing controls
+  document.querySelectorAll('.toggle-group').forEach(group => {
+    group.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // ensure only one active per group
+        group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // reload growing section with new values
+        const mr = document.querySelector('.toggle-group[data-name="min_recent"] .toggle-btn.active');
+        const mg = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
+        const min_recent = mr ? parseInt(mr.dataset.value) : currentData.growing.min_recent;
+        const min_growth = mg ? parseFloat(mg.dataset.value) : currentData.growing.min_growth;
+        loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
+      });
+    });
+  });
 
-  // Sync top-level defaults controls with section radios
-  function applyDefaultsToSection() {
-    const dmr = document.querySelector('input[name="default_min_recent"]:checked');
-    const dmg = document.querySelector('input[name="default_min_growth"]:checked');
-    if (dmr) {
-      const target = document.querySelector(`input[name="min_recent"][value="${dmr.value}"]`);
-      if (target) target.checked = true;
+  // Per-section filter buttons: cycle state and reload corresponding section
+  document.querySelectorAll('.discover-filter').forEach(btn => {
+    const section = btn.dataset.section;
+    const states = ['all','nsfw','sfw'];
+    function updateBtn() {
+      const labels = { all: 'All', nsfw: 'NSFW Only', sfw: 'Safe only' };
+      const state = sectionFilter[section] || 'all';
+      btn.textContent = labels[state] || 'All';
+      if (state === 'nsfw') btn.classList.add('active'); else btn.classList.remove('active');
     }
-    if (dmg) {
-      const targetg = document.querySelector(`input[name="min_growth"][value="${dmg.value}"]`);
-      if (targetg) targetg.checked = true;
-    }
-  }
-
-  // When defaults change, copy into section radios and reload
-  document.querySelectorAll('input[name="default_min_recent"]').forEach(r => r.addEventListener('change', () => {
-    applyDefaultsToSection();
-    const mg = document.querySelector('input[name="min_growth"]:checked');
-    const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
-    const mr = document.querySelector('input[name="min_recent"]:checked');
-    const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
-    loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
-  }));
-  document.querySelectorAll('input[name="default_min_growth"]').forEach(r => r.addEventListener('change', () => {
-    applyDefaultsToSection();
-    const mr = document.querySelector('input[name="min_recent"]:checked');
-    const min_recent = mr ? parseInt(mr.value) : currentData.growing.min_recent;
-    const mg = document.querySelector('input[name="min_growth"]:checked');
-    const min_growth = mg ? parseFloat(mg.value) : currentData.growing.min_growth;
-    loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
-  }));
-
-  // Apply defaults initially so both control places match
-  applyDefaultsToSection();
+    updateBtn();
+    btn.addEventListener('click', () => {
+      const cur = sectionFilter[section] || 'all';
+      const idx = Math.max(0, states.indexOf(cur));
+      const next = states[(idx + 1) % states.length];
+      sectionFilter[section] = next;
+      updateBtn();
+      // reload section with same parameters
+      if (section === 'trending') {
+        loadTrending(currentData.trending.days || 7);
+      } else if (section === 'gems') {
+        loadHiddenGems(currentData.gems.max_subscribers || 10000);
+      } else if (section === 'growing') {
+        const mr = document.querySelector('.toggle-group[data-name="min_recent"] .toggle-btn.active');
+        const mg = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
+        const min_recent = mr ? parseInt(mr.dataset.value) : currentData.growing.min_recent;
+        const min_growth = mg ? parseFloat(mg.dataset.value) : currentData.growing.min_growth;
+        loadFastestGrowing(currentData.growing.days || 30, min_recent, min_growth);
+      }
+    });
+  });
 });

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Discover — Pineapple Subreddit Index</title>
+  <title>Discover | Sindex</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="/icons/pineapple.svg" type="image/svg+xml">
   <link rel="shortcut icon" href="/icons/pineapple.svg">
@@ -35,22 +35,7 @@
     <h1>Discover Subreddits</h1>
     <p class="lead">Find trending communities, hidden gems, and the fastest growing subreddits in our index.</p>
 
-    <div class="discover-controls">
-      <div class="radio-group">
-        <span class="radio-label">Defaults — Min recent:</span>
-        <label><input type="radio" name="default_min_recent" value="3">3</label>
-        <label><input type="radio" name="default_min_recent" value="5" checked>5</label>
-        <label><input type="radio" name="default_min_recent" value="10">10</label>
-      </div>
-      <div class="radio-group">
-        <span class="radio-label">Defaults — Min growth:</span>
-        <label><input type="radio" name="default_min_growth" value="1.5" checked>1.5x</label>
-        <label><input type="radio" name="default_min_growth" value="1.4">1.4x</label>
-        <label><input type="radio" name="default_min_growth" value="1.3">1.3x</label>
-        <label><input type="radio" name="default_min_growth" value="1.2">1.2x</label>
-        <label><input type="radio" name="default_min_growth" value="1.1">1.1x</label>
-      </div>
-    </div>
+    <!-- Top defaults removed. Per-section filters added alongside their controls. -->
 
     <!-- Trending This Week -->
     <div class="section">
@@ -64,6 +49,7 @@
           <button class="time-btn" data-section="trending" data-days="14">14d</button>
           <button class="time-btn" data-section="trending" data-days="30">30d</button>
         </div>
+        <button class="filter-chip discover-filter" data-section="trending" data-filter="nsfw">NSFW Only</button>
       </div>
       <div id="trending-list" class="subreddit-grid">
         <div class="loading">Loading trending subreddits...</div>
@@ -82,6 +68,7 @@
           <button class="time-btn active" data-section="gems" data-max="10000">< 10K</button>
           <button class="time-btn" data-section="gems" data-max="25000">< 25K</button>
         </div>
+        <button class="filter-chip discover-filter" data-section="gems" data-filter="nsfw">NSFW Only</button>
       </div>
       <div id="gems-list" class="subreddit-grid">
         <div class="loading">Loading hidden gems...</div>
@@ -100,22 +87,27 @@
           <button class="time-btn active" data-section="growing" data-days="30">30d</button>
           <button class="time-btn" data-section="growing" data-days="60">60d</button>
         </div>
+        <button class="filter-chip discover-filter" data-section="growing" data-filter="nsfw">NSFW Only</button>
 
-        <div class="control-row">
-          <div class="radio-group">
-            <span class="radio-label">Min recent mentions:</span>
-            <label><input type="radio" name="min_recent" value="3">3</label>
-            <label><input type="radio" name="min_recent" value="5" checked>5</label>
-            <label><input type="radio" name="min_recent" value="10">10</label>
+        <div class="control-row fg-controls">
+          <div class="toggle-group" data-name="min_recent">
+            <span class="toggle-label">Min recent mentions:</span>
+            <div class="toggle-buttons">
+              <button class="time-btn toggle-btn" data-value="3">3</button>
+              <button class="time-btn toggle-btn active" data-value="5">5</button>
+              <button class="time-btn toggle-btn" data-value="10">10</button>
+            </div>
           </div>
 
-          <div class="radio-group">
-            <span class="radio-label">Min growth (ratio):</span>
-            <label><input type="radio" name="min_growth" value="1.5" checked>1.5x</label>
-            <label><input type="radio" name="min_growth" value="1.4">1.4x</label>
-            <label><input type="radio" name="min_growth" value="1.3">1.3x</label>
-            <label><input type="radio" name="min_growth" value="1.2">1.2x</label>
-            <label><input type="radio" name="min_growth" value="1.1">1.1x</label>
+          <div class="toggle-group" data-name="min_growth">
+            <span class="toggle-label">Min growth (ratio):</span>
+            <div class="toggle-buttons">
+              <button class="time-btn toggle-btn active" data-value="1.5">1.5x</button>
+              <button class="time-btn toggle-btn" data-value="1.4">1.4x</button>
+              <button class="time-btn toggle-btn" data-value="1.3">1.3x</button>
+              <button class="time-btn toggle-btn" data-value="1.2">1.2x</button>
+              <button class="time-btn toggle-btn" data-value="1.1">1.1x</button>
+            </div>
           </div>
         </div>
       </div>
