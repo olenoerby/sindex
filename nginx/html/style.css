@@ -807,6 +807,14 @@ th.sticky {
 .mt-20 { margin-top: 20px; }
 .mb-24 { margin-bottom: 24px; }
 
+/* Additional spacing helpers used by legacy templates */
+.mb-32 { margin-bottom: 32px; }
+.pt-32 { padding-top: 32px; }
+.pb-60 { padding-bottom: 60px; }
+.m-0 { margin: 0; }
+.mt-40 { margin-top: 40px; }
+.chart-h320 { height: 320px; }
+
 .search-input {
   width: 100%;
   padding: 14px 48px 14px 18px;

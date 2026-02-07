@@ -12,9 +12,9 @@
     <a href="/analytics" class="nav-link active"><span class="nav-icon">­ƒôê</span><span class="nav-text">Analytics</span></a>
   </nav>
   
-  <div class="page" style="padding-top: 32px; padding-bottom: 60px;">
-    <header style="margin-bottom: 32px;">
-      <h1 style="margin-bottom: 12px;">Analytics Control Room</h1>
+  <div class="page pt-32 pb-60">
+    <header class="mb-32">
+      <h1 class="mb-12">Analytics Control Room</h1>
       <p class="lead">A wide-angle view of all Reddit mentions we track. Explore volume over time, identify standout subreddits and posts, and keep tabs on scanner health.</p>
       <div class="meta">
         <span class="pill" id="lastScanned">Last DB run: ÔÇö</span>
@@ -22,7 +22,7 @@
         <span class="pill" id="window">Window: 30 days</span>
       </div>
       <div class="controls">
-        <span class="muted" style="margin-right: 8px;">Timeline window:</span>
+        <span class="muted mr-8">Timeline window:</span>
         <button class="btn" data-days="30">30d</button>
         <button class="btn" data-days="90">90d</button>
         <button class="btn" data-days="180">180d</button>
@@ -74,9 +74,9 @@
       </div>
     </section>
 
-    <section style="margin-top: 40px; margin-bottom: 20px;">
-      <h2 style="margin-bottom: 16px;">Metadata Health</h2>
-      <p class="muted" style="margin-bottom: 24px;">Statistics about subreddit metadata freshness and completeness.</p>
+    <section class="mt-40 mb-20">
+      <h2 class="mb-16">Metadata Health</h2>
+      <p class="muted mb-24">Statistics about subreddit metadata freshness and completeness.</p>
     </section>
 
     <section class="grid" id="metadataGrid">
@@ -140,31 +140,31 @@
     <section class="layout">
       <div class="card">
         <div class="row-title">
-          <h3 style="margin:0">Volume over time</h3>
+          <h3 class="m-0">Volume over time</h3>
           <small id="timelineSummary">ÔÇö</small>
         </div>
         <div class="chart-wrap"><canvas id="timelineChart"></canvas></div>
       </div>
       <div class="card">
         <div class="row-title">
-          <h3 style="margin:0">New subreddits per day</h3>
+          <h3 class="m-0">New subreddits per day</h3>
           <small id="subsSummary">ÔÇö</small>
         </div>
-        <div class="chart-wrap" style="height: 320px"><canvas id="subsChart"></canvas></div>
-        <p class="muted" style="margin:10px 0 0">Shows first-time appearances of a subreddit in comments.</p>
+        <div class="chart-wrap chart-h320"><canvas id="subsChart"></canvas></div>
+        <p class="muted mt-10">Shows first-time appearances of a subreddit in comments.</p>
       </div>
     </section>
 
     <section class="split">
       <div class="card">
-        <div class="row-title"><h3 style="margin:0">Top subreddits</h3><small>By total mentions</small></div>
+        <div class="row-title"><h3 class="m-0">Top subreddits</h3><small>By total mentions</small></div>
         <table class="table" id="topSubredditsTable">
           <thead><tr><th>#</th><th>Subreddit</th><th>Mentions</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="card">
-        <div class="row-title"><h3 style="margin:0">Top commenters</h3><small>By mentions recorded</small></div>
+        <div class="row-title"><h3 class="m-0">Top commenters</h3><small>By mentions recorded</small></div>
         <table class="table" id="topCommentersTable">
           <thead><tr><th>#</th><th>User</th><th>Comments</th></tr></thead>
           <tbody></tbody>
@@ -172,16 +172,16 @@
       </div>
     </section>
 
-    <section class="split" style="margin-top: 20px;">
+    <section class="split mt-20">
       <div class="card">
-        <div class="row-title"><h3 style="margin:0">Top posts</h3><small>Most-mentioned posts</small></div>
+        <div class="row-title"><h3 class="m-0">Top posts</h3><small>Most-mentioned posts</small></div>
         <table class="table" id="topPostsTable">
           <thead><tr><th>#</th><th>Post</th><th>Mentions</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="card">
-        <div class="row-title"><h3 style="margin:0">Unique reach</h3><small>Posts with widest subreddit spread</small></div>
+        <div class="row-title"><h3 class="m-0">Unique reach</h3><small>Posts with widest subreddit spread</small></div>
         <table class="table" id="topUniquePostsTable">
           <thead><tr><th>#</th><th>Post</th><th>Distinct subs</th></tr></thead>
           <tbody></tbody>
@@ -233,12 +233,12 @@
       box.appendChild(actions);
       overlay.appendChild(box);
       document.body.appendChild(overlay);
-      document.body.style.overflow = 'hidden';
+      document.body.classList.add('no-scroll');
 
       confirmBtn.addEventListener('click', () => {
         try { setCookie('sindex_age_confirmed', '1', 365); } catch(e) {}
         overlay.remove();
-        document.body.style.overflow = '';
+        document.body.classList.remove('no-scroll');
         onConfirm();
       });
 
@@ -716,12 +716,12 @@
       box.appendChild(actions);
       overlay.appendChild(box);
       document.body.appendChild(overlay);
-      document.body.style.overflow = 'hidden';
+      document.body.classList.add('no-scroll');
 
       confirmBtn.addEventListener('click', () => {
         try { setCookie('sindex_age_confirmed', '1', 365); } catch(e) {}
         overlay.remove();
-        document.body.style.overflow = '';
+        document.body.classList.remove('no-scroll');
         onConfirm();
       });
 
