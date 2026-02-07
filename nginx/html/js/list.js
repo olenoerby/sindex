@@ -656,14 +656,27 @@ const filterPop = document.getElementById('filterPop');
     }
     // Remove hidden class so CSS can show it
     filterPop.classList.remove('hidden');
-    // Fallback: set inline position near the button in case CSS positioning fails
+    // Clear any previous inline positioning so CSS can take over when
+    // the popout is appended into a positioned ancestor (anchor).
+    filterPop.style.left = '';
+    filterPop.style.top = '';
+    filterPop.style.position = '';
+    filterPop.style.zIndex = '';
+    // Fallback: only apply absolute document positioning when the popout
+    // is attached directly to document.body. If it's inside a positioned
+    // anchor element, let CSS (via .filter-anchor) handle placement.
     try{
       const rect = filterBtn.getBoundingClientRect();
-      filterPop.style.position = 'absolute';
-      filterPop.style.left = (rect.left + window.scrollX) + 'px';
-      filterPop.style.top = (rect.bottom + window.scrollY + 8) + 'px';
-      filterPop.style.zIndex = '2000';
-      console.log('list.js: filterPop positioned at', filterPop.style.left, filterPop.style.top);
+      const parentEl = filterPop.parentElement || document.body;
+      if(parentEl === document.body){
+        filterPop.style.position = 'absolute';
+        filterPop.style.left = (rect.left + window.scrollX) + 'px';
+        filterPop.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        filterPop.style.zIndex = '2000';
+        console.log('list.js: filterPop positioned at', filterPop.style.left, filterPop.style.top);
+      } else {
+        console.log('list.js: using CSS positioning inside anchor element', parentEl);
+      }
     }catch(e){ console.warn('list.js: positioning fallback failed', e); }
     // filters now contain the Options section directly
   });
