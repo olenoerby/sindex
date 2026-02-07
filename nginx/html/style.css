@@ -1019,8 +1019,9 @@ th.sticky {
 .section-header {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
   margin-bottom: 16px;
 }
 
@@ -1053,6 +1054,7 @@ th.sticky {
 
 .section-header .discover-filter {
   flex: 0 0 auto;
+  margin-left: 8px;
 }
 
 /* Radio group styling for compact controls */
@@ -1318,7 +1320,7 @@ th.sticky {
   animation: spin 1s linear infinite;
 }
 
-/* Mobile: stack section header controls (time buttons + filter) under title */
+/* On small viewports keep the title full-width and controls inline beneath it */
 @media (max-width: 720px) {
   .section-header {
     flex-direction: column;
@@ -1326,23 +1328,25 @@ th.sticky {
     gap: 8px;
   }
 
-  /* Keep the title full width, but place the time-selector and filter on the same next line */
   .section-header > div:first-child {
     order: 1;
     width: 100%;
   }
 
-  .section-header .time-selector {
+  .section-header .time-selector,
+  .section-header .discover-filter {
     order: 2;
+  }
+
+  .section-header .time-selector {
     width: auto;
-    display: flex;
+    display: inline-flex;
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
   }
 
   .section-header .discover-filter {
-    order: 2;
     margin-left: 8px;
     margin-top: 0;
     align-self: center;
