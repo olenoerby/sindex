@@ -635,8 +635,10 @@ if(maxSubsEl){
 const filterBtn = document.getElementById('filterBtn');
 const filterPop = document.getElementById('filterPop');
   if(filterBtn && filterPop){
+  console.log('list.js: filterBtn and filterPop found');
   filterBtn.addEventListener('click', (ev)=>{
     ev.stopPropagation();
+    console.log('list.js: filterBtn clicked, hidden?', filterPop.classList.contains('hidden'));
     // Toggle visibility: when opening, position the popout below the button
     if(!filterPop.classList.contains('hidden')){
       filterPop.classList.add('hidden');
@@ -650,9 +652,19 @@ const filterPop = document.getElementById('filterPop');
       anchor.classList.add('filter-anchor');
       if(filterPop.parentElement !== anchor) anchor.appendChild(filterPop);
     }catch(e){
-      // noop, fall back to default CSS placement
+      console.warn('list.js: error appending filterPop to anchor', e);
     }
+    // Remove hidden class so CSS can show it
     filterPop.classList.remove('hidden');
+    // Fallback: set inline position near the button in case CSS positioning fails
+    try{
+      const rect = filterBtn.getBoundingClientRect();
+      filterPop.style.position = 'absolute';
+      filterPop.style.left = (rect.left + window.scrollX) + 'px';
+      filterPop.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+      filterPop.style.zIndex = '2000';
+      console.log('list.js: filterPop positioned at', filterPop.style.left, filterPop.style.top);
+    }catch(e){ console.warn('list.js: positioning fallback failed', e); }
     // filters now contain the Options section directly
   });
   // close when clicking outside
