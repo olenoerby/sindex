@@ -908,5 +908,12 @@ function openDescriptionModal(htmlText, lastChecked){
 loadPrefs();
 updateSortedHeader();
 
+// Ensure clear (X) button visibility reflects loaded query from prefs
+try{
+  if(typeof qEl !== 'undefined' && qEl && typeof clearQueryBtn !== 'undefined' && clearQueryBtn){
+    clearQueryBtn.style.display = (qEl.value && qEl.value.length>0) ? 'inline' : 'none';
+  }
+}catch(e){/* ignore */}
+
 // Initialize with age gate
 initWithAgeGate(() => loadPage(currentPage));
