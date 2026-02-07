@@ -657,6 +657,9 @@ th.sticky {
   background: var(--panel);
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+  display: none;
+  right: 12px;
+  top: 64px;
 }
 
 /* Responsive adjustments */
@@ -708,6 +711,25 @@ th.sticky {
   position: relative;
   width: 100%;
 }
+
+/* Row layout for search inputs on list page */
+.search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search-field {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+}
+
+.controls-top { margin-top: 12px; }
+
+/* Keep the table card visually flush with no extra padding */
+.table-card { padding: 0; margin-top: 12px; }
 
 .search-input {
   width: 100%;

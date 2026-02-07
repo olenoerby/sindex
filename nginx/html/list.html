@@ -38,15 +38,15 @@
       </h1>
     </div>
     <div class="search-section">
-      <div class="search-wrapper" style="display:flex;gap:8px;align-items:center;justify-content:space-between">
-        <div style="position:relative;flex:1;min-width:180px">
-          <input id="q" class="search-input" maxlength="200" placeholder="Search name, title or description" style="width:100%;padding-right:34px;box-sizing:border-box" />
+      <div class="search-wrapper search-row">
+        <div class="search-field">
+          <input id="q" class="search-input" maxlength="200" placeholder="Search name, title or description" />
           <button id="clearQuery" class="search-clear" title="Clear search">×</button>
         </div>
-        <button id="reload" class="page-btn" title="Reload" style="padding:14px 18px;font-size:18px;min-width:auto">↻</button>
+        <button id="reload" class="page-btn" title="Reload">↻</button>
       </div>
 
-        <div class="controls" style="margin-top:12px">
+        <div class="controls controls-top">
           <div style="margin-right:auto" class="muted" id="loading"></div>
           <button id="filterBtn" class="btn btn-ghost">Filters & Options ▾</button>
           <button id="sortDir" class="btn">Sort: Desc</button>
@@ -54,7 +54,7 @@
         </div>
       </div>
         <!-- Filter popout: positioned relative to .controls (absolute placement) -->
-        <div id="filterPop" style="display:none;position:absolute;z-index:60;min-width:280px;right:12px;top:64px;padding:14px;border-radius:10px;background:var(--card);box-shadow:0 8px 30px rgba(2,6,23,0.08)">
+        <div id="filterPop">
           <div style="display:flex;flex-direction:column;gap:10px">
             <!-- Options Section (moved to top for primary controls) -->
             <div>
@@ -152,7 +152,7 @@
       <div class="muted" id="count"></div>
       <div class="muted" id="emptyHint" style="margin-top:8px"></div>
       <div id="paginationControls" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;justify-content:center"></div>
-      <div class="table-wrap card" style="padding:0;margin-top:12px">
+      <div class="table-wrap card table-card">
       <table id="tbl" class="table">
     <thead>
       <tr>
