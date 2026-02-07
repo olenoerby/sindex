@@ -63,8 +63,16 @@ async function loadTrending(days = 7) {
     const data = await response.json();
     currentData.trending = { days, data };
 
-    if (data.items && data.items.length > 0) {
-      container.innerHTML = data.items.slice(0, 12).map(sub => createSubredditCard(sub, 'trending')).join('');
+    // Client-side NSFW/SFW filtering because discover endpoints don't accept those params
+    let items = data.items || [];
+    if (globalFilter === 'nsfw') {
+      items = items.filter(s => s.is_over18 === true || s.is_over18 === 'true');
+    } else if (globalFilter === 'sfw') {
+      items = items.filter(s => s.is_over18 === false || s.is_over18 === 'false');
+    }
+
+    if (items.length > 0) {
+      container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'trending')).join('');
     } else {
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No trending subreddits found</p></div>';
     }
@@ -84,8 +92,15 @@ async function loadHiddenGems(maxSubs = 10000) {
     const data = await response.json();
     currentData.gems = { max_subscribers: maxSubs, data };
 
-    if (data.items && data.items.length > 0) {
-      container.innerHTML = data.items.slice(0, 12).map(sub => createSubredditCard(sub, 'gem')).join('');
+    let items = data.items || [];
+    if (globalFilter === 'nsfw') {
+      items = items.filter(s => s.is_over18 === true || s.is_over18 === 'true');
+    } else if (globalFilter === 'sfw') {
+      items = items.filter(s => s.is_over18 === false || s.is_over18 === 'false');
+    }
+
+    if (items.length > 0) {
+      container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'gem')).join('');
     } else {
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">💎</div><p>No hidden gems found</p></div>';
     }
@@ -105,8 +120,15 @@ async function loadFastestGrowing(days = 30, min_recent = 5, min_growth = 1.5) {
     const data = await response.json();
     currentData.growing = { days, min_recent, min_growth, data };
 
-    if (data.items && data.items.length > 0) {
-      container.innerHTML = data.items.slice(0, 12).map(sub => createSubredditCard(sub, 'growing')).join('');
+    let items = data.items || [];
+    if (globalFilter === 'nsfw') {
+      items = items.filter(s => s.is_over18 === true || s.is_over18 === 'true');
+    } else if (globalFilter === 'sfw') {
+      items = items.filter(s => s.is_over18 === false || s.is_over18 === 'false');
+    }
+
+    if (items.length > 0) {
+      container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'growing')).join('');
     } else {
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>No growing subreddits found</p></div>';
     }
