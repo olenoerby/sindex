@@ -39,20 +39,16 @@
         <!-- <span id="headerSubCount" class="header-count">0 subreddits scanned</span> -->
       </h1>
     <div class="search-section">
-      <div class="search-wrapper" style="display:flex;gap:8px;align-items:center">
+      <div class="search-wrapper" style="display:flex;gap:8px;align-items:center;justify-content:space-between">
         <div style="position:relative;flex:1;min-width:180px">
           <input id="q" class="search-input" maxlength="200" placeholder="Search name, title or description" style="width:100%;padding-right:34px;box-sizing:border-box" />
           <button id="clearQuery" class="search-clear" title="Clear search">×</button>
         </div>
-        <button id="reload" class="page-btn" title="Reload" style="padding:14px 18px;font-size:18px;min-width:auto">↻</button>
-      </div>
-
-      <div class="controls card" style="margin-top:12px">
-        <div class="controls-row controls-row--actions">
-          <div style="margin-right:auto" class="muted" id="loading"></div>
-          <button id="filterBtn" class="btn btn-ghost" style="margin-left:8px">Filters & Options ▾</button>
-          <button id="sortDir" class="btn">Sort: Desc</button>
-          <button id="resetFilters" class="btn btn-ghost">Reset</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="reload" class="page-btn" title="Reload" style="padding:14px 18px;font-size:18px;min-width:auto">↻</button>
+          <button id="filterBtn" class="btn btn-ghost" title="Filters & Options">Filters & Options ▾</button>
+          <button id="sortDir" class="btn" title="Toggle sort direction">Sort: Desc</button>
+          <button id="resetFilters" class="btn btn-ghost" title="Reset filters">Reset</button>
         </div>
       </div>
         <!-- Filter popout: positioned relative to .controls (absolute placement) -->
