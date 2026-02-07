@@ -1133,6 +1133,17 @@ th.sticky {
   margin-top: 12px;
 }
 
+/* Ensure Fastest Growing control row always appears on its own full-width line
+   directly under the section header on all viewports. */
+.section .fg-controls {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
 .toggle-group {
   display: flex;
   flex-direction: column;
