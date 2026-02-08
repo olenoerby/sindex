@@ -246,6 +246,18 @@ header {
     min-width: 44px;
     text-align: center;
   }
+  /* Make page/container left/right padding match mobile viewport */
+  .page, .container, .discover-container, .browse-container {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  body > h1,
+  body > .container,
+  body > .page {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
 }
 
 .btn {
