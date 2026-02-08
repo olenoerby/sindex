@@ -3,7 +3,7 @@
 let currentData = {
   trending: { days: 7, data: null },
   gems: { max_subscribers: 10000, data: null },
-  growing: { days: 30, min_recent: 5, min_growth: 1.5, data: null }
+  growing: { days: 30, min_recent: 3, min_growth: 1.1, data: null }
 };
 
 // Global NSFW/SFW filter for all sections: 'all' | 'nsfw' | 'sfw'
@@ -110,7 +110,7 @@ async function loadHiddenGems(maxSubs = 10000) {
   }
 }
 
-async function loadFastestGrowing(days = 30, min_recent = 5, min_growth = 1.5) {
+async function loadFastestGrowing(days = 30, min_recent = 3, min_growth = 1.1) {
   const container = document.getElementById('growing-list');
   container.innerHTML = '<div class="loading">Loading...</div>';
 
@@ -136,67 +136,7 @@ async function loadFastestGrowing(days = 30, min_recent = 5, min_growth = 1.5) {
     if (items.length > 0) {
       container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'growing')).join('');
     } else {
-      // Auto-relax filters: try expanding date ranges, then lowering min_recent,
-      // then lowering min_growth step-by-step until we find results or exhaust options.
-      console.log('discover.js: fastest growing returned 0 items; attempting relaxed queries');
-      const daysOptions = [14, 30, 60];
-      const minRecentOptions = [10, 5, 3];
-      const minGrowthOptions = [1.5, 1.4, 1.3, 1.2, 1.1];
-
-      // Determine start indices from current requested values
-      const startDayIdx = Math.max(0, daysOptions.indexOf(days));
-      const startMrIdx = Math.max(0, minRecentOptions.indexOf(min_recent));
-      const startMgIdx = Math.max(0, minGrowthOptions.indexOf(min_growth));
-
-      let found = false;
-      // Iterate days from current index upward
-      for (let di = startDayIdx; di < daysOptions.length && !found; di++){
-        const d = daysOptions[di];
-
-        // First: attempt stepping down min_recent (less strict) while keeping min_growth fixed
-        for (let mri = startMrIdx; mri >= 0 && !found; mri--){
-          const mr = minRecentOptions[mri];
-          try{
-            console.log('discover.js: trying relaxed params (min_recent)', { days: d, min_recent: mr, min_growth: min_growth });
-            const r = await fetchFastest(d, mr, min_growth);
-            let its = (r.json && r.json.items) ? r.json.items : [];
-            if (globalFilter === 'nsfw') its = its.filter(s => s.is_over18 === true || s.is_over18 === 'true');
-            else if (globalFilter === 'sfw') its = its.filter(s => s.is_over18 === false || s.is_over18 === 'false');
-            if (its.length > 0){
-              console.log('discover.js: relaxed (min_recent) query succeeded', { days: d, min_recent: mr, min_growth: min_growth, found: its.length });
-              container.innerHTML = its.slice(0,12).map(sub => createSubredditCard(sub, 'growing')).join('');
-              currentData.growing = { days: d, min_recent: mr, min_growth: min_growth, data: r.json };
-              found = true;
-              break;
-            }
-          }catch(e){ console.warn('discover.js: relaxed fetch failed (min_recent)', e); }
-        }
-
-        if (found) break;
-
-        // Second: if still none, attempt stepping down min_growth (less strict) while keeping min_recent fixed
-        for (let mgi = startMgIdx; mgi >= 0 && !found; mgi--){
-          const mg = minGrowthOptions[mgi];
-          try{
-            console.log('discover.js: trying relaxed params (min_growth)', { days: d, min_recent: min_recent, min_growth: mg });
-            const r = await fetchFastest(d, min_recent, mg);
-            let its = (r.json && r.json.items) ? r.json.items : [];
-            if (globalFilter === 'nsfw') its = its.filter(s => s.is_over18 === true || s.is_over18 === 'true');
-            else if (globalFilter === 'sfw') its = its.filter(s => s.is_over18 === false || s.is_over18 === 'false');
-            if (its.length > 0){
-              console.log('discover.js: relaxed (min_growth) query succeeded', { days: d, min_recent: min_recent, min_growth: mg, found: its.length });
-              container.innerHTML = its.slice(0,12).map(sub => createSubredditCard(sub, 'growing')).join('');
-              currentData.growing = { days: d, min_recent: min_recent, min_growth: mg, data: r.json };
-              found = true;
-              break;
-            }
-          }catch(e){ console.warn('discover.js: relaxed fetch failed (min_growth)', e); }
-        }
-      }
-
-      if(!found){
-        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>No growing subreddits found</p></div>';
-      }
+      container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>No growing subreddits found</p></div>';
     }
   } catch (error) {
     console.error('Error loading growing:', error);
