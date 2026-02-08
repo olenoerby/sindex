@@ -621,6 +621,33 @@ th.sticky {
   animation: spin 1s linear infinite;
 }
 
+/* Show more button used on discover lists */
+.show-more-btn {
+  display: block;
+  margin: 12px auto;
+  padding: 8px 14px;
+  min-width: 160px;
+  text-align: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border 0.15s, color 0.15s;
+}
+
+.show-more-btn:hover {
+  background: var(--panel-strong);
+  border-color: rgba(255,255,255,0.16);
+}
+
+.show-more-btn[data-expanded="true"] {
+  background: linear-gradient(120deg, rgba(30,198,179,0.2), rgba(30,198,179,0.08));
+  border-color: rgba(30,198,179,0.3);
+  color: #e9fffb;
+}
+
 /* Column-specific styles */
 .col-description .btn {
   height: 36px;
