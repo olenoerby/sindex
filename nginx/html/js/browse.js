@@ -217,11 +217,54 @@ async function loadSubreddits() {
 
 // Update pagination buttons
 function updatePagination() {
-  const totalPages = Math.ceil(totalResults / perPage);
-  
-  prevPage.disabled = currentPage <= 1;
-  nextPage.disabled = currentPage >= totalPages;
-  pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+  const totalPages = Math.max(1, Math.ceil(totalResults / perPage));
+  const paginationEl = document.getElementById('pagination');
+  if(!paginationEl) return;
+
+  // Build controls similar to list.js pagination: First, Prev, page input, / total, Next, Last
+  paginationEl.innerHTML = '';
+  const ctr = document.createElement('div');
+  ctr.className = 'pagination-row';
+
+  const makeBtn = (text, aria, disabled, onClick) => {
+    const b = document.createElement('button');
+    b.className = 'page-btn';
+    b.textContent = text;
+    b.setAttribute('aria-label', aria);
+    b.disabled = !!disabled;
+    if(onClick) b.addEventListener('click', onClick);
+    return b;
+  };
+
+  const first = makeBtn('« First', 'First page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = 1; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+  const prev = makeBtn('◀ Prev', 'Previous page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = Math.max(1, currentPage-1); loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+
+  const pageInput = document.createElement('input');
+  pageInput.type = 'number';
+  pageInput.min = 1;
+  pageInput.max = totalPages;
+  pageInput.className = 'muted input-small';
+  pageInput.value = String(currentPage);
+  pageInput.addEventListener('change', ()=>{
+    if(isLoading){ pageInput.value = String(currentPage); return; }
+    const v = Number(pageInput.value||0);
+    if(Number.isFinite(v) && v>=1 && v<=totalPages){ currentPage = v; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else { pageInput.value = String(currentPage); }
+  });
+
+  const pageTotal = document.createElement('span'); pageTotal.className = 'muted ml-6'; pageTotal.textContent = `/ ${totalPages}`;
+
+  const next = makeBtn('Next ▶', 'Next page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = Math.min(totalPages, currentPage+1); loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+  const last = makeBtn('Last »', 'Last page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = totalPages; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+
+  ctr.appendChild(first);
+  ctr.appendChild(prev);
+  ctr.appendChild(pageInput);
+  ctr.appendChild(pageTotal);
+  ctr.appendChild(next);
+  ctr.appendChild(last);
+
+  paginationEl.appendChild(ctr);
   savePrefs();
 }
 
@@ -310,22 +353,7 @@ if (filterBtn) {
   });
 }
 
-prevPage.addEventListener('click', () => {
-  if (currentPage > 1) {
-    currentPage--;
-    loadSubreddits();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-});
-
-nextPage.addEventListener('click', () => {
-  const totalPages = Math.ceil(totalResults / perPage);
-  if (currentPage < totalPages) {
-    currentPage++;
-    loadSubreddits();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-});
+// Pagination buttons are rendered dynamically by updatePagination()
 
 // Initialize preferences and UI on page load
 function initializePage() {
