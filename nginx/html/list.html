@@ -32,11 +32,9 @@
 
   <div class="browse-container">
     <div class="browse-header small-title">
-      <h1>
-        <a href="/">Ψ Advanced List</a>
-        <!-- <span id="headerSubCount" class="header-count">0 subreddits scanned</span> -->
-      </h1>
+      <h1><a href="/">Ψ Advanced List</a></h1>
     </div>
+
     <div class="search-section">
       <div class="search-wrapper search-row">
         <div class="search-field">
@@ -46,135 +44,131 @@
         <button id="reload" class="page-btn" title="Reload">↻</button>
       </div>
 
-        <div class="controls controls-top">
-          <div class="muted flex-spacer" id="loading"></div>
-          <button id="filterBtn" class="btn btn-ghost">Filters & Options ▾</button>
-          <div class="controls-row controls-row--actions">
-            <button id="sortDir" class="btn">Sort: Desc</button>
-            <button id="resetFilters" class="btn btn-ghost">Reset</button>
-          </div>
+      <div class="controls controls-top">
+        <div class="muted flex-spacer" id="loading"></div>
+        <button id="filterBtn" class="btn btn-ghost">Filters &amp; Options ▾</button>
+        <div class="controls-row controls-row--actions">
+          <button id="sortDir" class="btn">Sort: Desc</button>
+          <button id="resetFilters" class="btn btn-ghost">Reset</button>
         </div>
       </div>
-        <!-- Filter popout: positioned relative to .controls (absolute placement) -->
-        <div id="filterPop" class="hidden">
-          <div class="pop-column">
-            <!-- Options Section (moved to top for primary controls) -->
-            <div>
-              <div class="section-title">Display Options</div>
-              <table>
-                <tr>
-                  <td>Sort by:</td>
-                  <td><select id="sortSelect">
-                    <option value="mentions">Mentions</option>
-                    <option value="subscribers">Subscribers</option>
-                    <option value="active_users">Active users</option>
-                    <option value="first_mentioned">First mentioned</option>
-                    <option value="created_utc">Created date</option>
-                    <option value="display_name_prefixed">Display name</option>
-                    <option value="title">Title</option>
-                    <option value="name">Name</option>
-                    <option value="description">Description</option>
-                  </select></td>
-                </tr>
-                <tr>
-                  <td>Results per page:</td>
-                  <td>
-                    <select id="perPageSelect">
-                      <option value="25">25</option>
-                      <option value="50">50</option>
-                      <option value="100">100</option>
-                    </select>
-                  </td>
-                </tr>
-                <tr>
-                  <td>Link opens to:</td>
-                  <td><select id="listing">
-                    <option value="" selected>Subreddit home</option>
-                    <option value="hot">Hot</option>
-                    <option value="new">New</option>
-                    <option value="top/?t=all">Top (all time)</option>
-                    <option value="best">Best</option>
-                    <option value="rising">Rising</option>
-                  </select></td>
-                </tr>
-              </table>
-            </div>
-
-            <div class="actions-sep">
-              <div class="section-title">Filters</div>
-              
-              <!-- Availability Filters -->
-              <div class="muted">Availability</div>
-              <label class="pop-label"><input id="showAvailable" type="checkbox" checked/> Show available subreddits</label>
-              <label class="pop-label"><input id="showBanned" type="checkbox"/> Show unavailable/banned</label>
-              <label class="pop-label"><input id="showPending" type="checkbox" checked/> Show pending metadata updates</label>
-              
-              <!-- Content Type Filters -->
-              <div class="muted mt-8">Content Type</div>
-              <label class="pop-label"><input id="showNSFW" type="checkbox" checked/> Show NSFW</label>
-              <label class="pop-label"><input id="showNonNSFW" type="checkbox" checked/> Show SFW (non-NSFW)</label>
-              
-              <!-- Discovery Date Filters -->
-              <div class="muted mt-8">Discovery Date</div>
-              <label class="pop-label">
-                <select id="firstMentionedPreset">
-                  <option value="" selected>All time</option>
-                  <option value="7">New this week ⭐</option>
-                  <option value="30">Last 30 days</option>
-                  <option value="90">Last 90 days</option>
-                  <option value="custom">Custom days...</option>
-                </select>
-              </label>
-              <label id="customDaysLabel" class="hidden pop-label">Custom days: <input id="customDays" type="number" placeholder="30" min="1" step="1" class="small-input"/></label>
-              
-              <!-- Numeric Range Filters -->
-              <div class="muted mt-8">Mentions Range</div>
-              <label class="pop-label">Minimum <input id="minMentions" type="number" placeholder="0" min="0" step="1" class="small-input"/></label>
-              <label class="pop-label">Maximum <input id="maxMentions" type="number" placeholder="∞" min="1" step="1" class="small-input"/></label>
-              
-              <div class="muted mt-8">Subscribers Range</div>
-              <label class="pop-label">Minimum <input id="minSubscribers" type="number" placeholder="0" min="0" step="1" class="small-input"/></label>
-              <label class="pop-label">Maximum <input id="maxSubscribers" type="number" placeholder="∞" min="0" step="1" class="small-input"/></label>
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="actions-row">
-              <button id="showAll" class="btn btn-ghost btn-small">Show All</button>
-              <div class="row-actions">
-                <button id="resetFiltersPop" class="btn btn-ghost btn-small">Reset</button>
-                <button id="closeFilterPop" class="btn btn-small">Apply</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- Options popout for mobile: will hold Sort and Link Opens To when on small screens -->
-        <!-- Options moved into the Filter popout (see below) -->
-      </div>
-
-      <div class="muted" id="count"></div>
-      <div class="muted" id="emptyHint" class="mt-8"></div>
-      <div id="paginationControls" class="pagination-controls"></div>
-      <div class="table-wrap card table-card">
-      <table id="tbl" class="table">
-    <thead>
-      <tr>
-                <th class="sticky col-name" data-sort="display_name_prefixed">Display Name</th>
-                <th class="sticky col-title" data-sort="title">Title</th>
-                <th class="sticky col-mentions" data-sort="mentions">Mentions</th>
-                <th class="sticky col-subscribers" data-sort="subscribers">Subscribers</th>
-                <th class="sticky col-first_mentioned" data-sort="first_mentioned">First mentioned</th>
-                <th class="sticky col-description" data-sort="description">Description</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-  </div>
     </div>
+
+    <!-- Filter popout: positioned relative to .controls (absolute placement) -->
+    <div id="filterPop" class="hidden">
+      <div class="pop-column">
+        <div>
+          <div class="section-title">Display Options</div>
+          <table>
+            <tr>
+              <td>Sort by:</td>
+              <td>
+                <select id="sortSelect">
+                  <option value="mentions">Mentions</option>
+                  <option value="subscribers">Subscribers</option>
+                  <option value="active_users">Active users</option>
+                  <option value="first_mentioned">First mentioned</option>
+                  <option value="created_utc">Created date</option>
+                  <option value="display_name_prefixed">Display name</option>
+                  <option value="title">Title</option>
+                  <option value="name">Name</option>
+                  <option value="description">Description</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td>Results per page:</td>
+              <td>
+                <select id="perPageSelect">
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td>Link opens to:</td>
+              <td>
+                <select id="listing">
+                  <option value="" selected>Subreddit home</option>
+                  <option value="hot">Hot</option>
+                  <option value="new">New</option>
+                  <option value="top/?t=all">Top (all time)</option>
+                  <option value="best">Best</option>
+                  <option value="rising">Rising</option>
+                </select>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="actions-sep">
+          <div class="section-title">Filters</div>
+          <div class="muted">Availability</div>
+          <label class="pop-label"><input id="showAvailable" type="checkbox" checked/> Show available subreddits</label>
+          <label class="pop-label"><input id="showBanned" type="checkbox"/> Show unavailable/banned</label>
+          <label class="pop-label"><input id="showPending" type="checkbox" checked/> Show pending metadata updates</label>
+
+          <div class="muted mt-8">Content Type</div>
+          <label class="pop-label"><input id="showNSFW" type="checkbox" checked/> Show NSFW</label>
+          <label class="pop-label"><input id="showNonNSFW" type="checkbox" checked/> Show SFW (non-NSFW)</label>
+
+          <div class="muted mt-8">Discovery Date</div>
+          <label class="pop-label">
+            <select id="firstMentionedPreset">
+              <option value="" selected>All time</option>
+              <option value="7">New this week ⭐</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="custom">Custom days...</option>
+            </select>
+          </label>
+          <label id="customDaysLabel" class="hidden pop-label">Custom days: <input id="customDays" type="number" placeholder="30" min="1" step="1" class="small-input"/></label>
+
+          <div class="muted mt-8">Mentions Range</div>
+          <label class="pop-label">Minimum <input id="minMentions" type="number" placeholder="0" min="0" step="1" class="small-input"/></label>
+          <label class="pop-label">Maximum <input id="maxMentions" type="number" placeholder="∞" min="1" step="1" class="small-input"/></label>
+
+          <div class="muted mt-8">Subscribers Range</div>
+          <label class="pop-label">Minimum <input id="minSubscribers" type="number" placeholder="0" min="0" step="1" class="small-input"/></label>
+          <label class="pop-label">Maximum <input id="maxSubscribers" type="number" placeholder="∞" min="0" step="1" class="small-input"/></label>
+
+        </div>
+
+        <div class="actions-row">
+          <button id="showAll" class="btn btn-ghost btn-small">Show All</button>
+          <div class="row-actions">
+            <button id="resetFiltersPop" class="btn btn-ghost btn-small">Reset</button>
+            <button id="closeFilterPop" class="btn btn-small">Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="muted" id="count"></div>
+    <div class="muted mt-8" id="emptyHint"></div>
+    <div id="paginationControls" class="pagination-controls"></div>
+
+    <div class="table-wrap card table-card">
+      <table id="tbl" class="table">
+        <thead>
+          <tr>
+            <th class="sticky col-name" data-sort="display_name_prefixed">Display Name</th>
+            <th class="sticky col-title" data-sort="title">Title</th>
+            <th class="sticky col-mentions" data-sort="mentions">Mentions</th>
+            <th class="sticky col-subscribers" data-sort="subscribers">Subscribers</th>
+            <th class="sticky col-first_mentioned" data-sort="first_mentioned">First mentioned</th>
+            <th class="sticky col-description" data-sort="description">Description</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
     <div id="paginationControlsBottom" class="pagination-controls"></div>
-    
+
     <!-- Floating About button underneath the table (bottom-right) -->
     <button id="explainBtn" class="about-fab" title="About" aria-label="About">?</button>
-
   </div>
 </body>
 </html>
