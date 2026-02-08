@@ -158,6 +158,9 @@ async function loadSubreddits() {
   if (isLoading) return;
   
   isLoading = true;
+  // preserve current scroll position so updating the grid doesn't jump the page
+  const _scrollX = (window.scrollX !== undefined) ? window.scrollX : (window.pageXOffset || 0);
+  const _scrollY = (window.scrollY !== undefined) ? window.scrollY : (window.pageYOffset || 0);
   subredditGrid.classList.add('hidden');
   statusMessage.classList.remove('hidden');
   statusMessage.innerHTML = `
@@ -203,6 +206,9 @@ async function loadSubreddits() {
 
     // Update pagination
     updatePagination();
+
+    // restore preserved scroll position (use a microtask to ensure layout applied)
+    try{ setTimeout(()=>{ window.scrollTo(_scrollX, _scrollY); }, 0); }catch(e){}
 
   } catch (error) {
     console.error('Error loading subreddits:', error);
