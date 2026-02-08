@@ -606,6 +606,24 @@ th.sticky {
   to { transform: rotate(360deg); }
 }
 
+/* Refresh button loading state (used by analytics.js) */
+.btn.refreshing {
+  position: relative;
+}
+.btn.refreshing::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.12);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
 /* Column-specific styles */
 .col-description .btn {
   height: 36px;
