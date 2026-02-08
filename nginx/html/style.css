@@ -1169,6 +1169,29 @@ th.sticky {
   margin-left: 8px;
 }
 
+/* Keep the time selector and its filter button together on one line
+   unless the viewport is very small. */
+.section-header .controls-inline {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.section-header .controls-inline .time-selector {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+}
+.section-header .controls-inline .discover-filter {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
 /* Radio group styling for compact controls */
 .radio-group {
   display: flex;
@@ -1314,7 +1337,7 @@ th.sticky {
 
 @media (max-width: 720px) {
   .fg-controls { flex-direction: column; align-items: stretch; }
-  .discover-filter { margin-left: 0; margin-top: 8px; }
+  .discover-filter { margin-left: 0; margin-top: 0; }
   .toggle-group { width: 100%; }
   .toggle-buttons { justify-content: flex-start; }
 }
@@ -1451,23 +1474,36 @@ th.sticky {
     width: 100%;
   }
 
-  .section-header .time-selector {
-    grid-column: 1 / 2;
+  .section-header .controls-inline {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .section-header .controls-inline .time-selector {
     display: inline-flex;
     gap: 8px;
     white-space: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     align-items: center;
+    flex: 1 1 auto;
   }
 
-  .section-header .discover-filter {
-    grid-column: 2 / 3;
-    justify-self: start;
+  .section-header .controls-inline .discover-filter {
+    flex: 0 0 auto;
     align-self: center;
     margin-left: 8px;
     white-space: nowrap;
   }
+}
+
+/* If the viewport is very small, allow the controls to wrap to the next line */
+@media (max-width: 420px) {
+  .section-header .controls-inline { flex-wrap: wrap; }
+  .section-header .controls-inline .discover-filter { margin-top: 8px; }
 }
 
 @keyframes spin {

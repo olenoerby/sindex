@@ -45,12 +45,14 @@
           <h2 class="section-title">🔥 Trending</h2>
           <p class="section-subtitle">Most mentioned recently</p>
         </div>
-        <div class="time-selector">
-          <button class="time-btn active" data-section="trending" data-days="7">7d</button>
-          <button class="time-btn" data-section="trending" data-days="14">14d</button>
-          <button class="time-btn" data-section="trending" data-days="30">30d</button>
+        <div class="controls-inline">
+          <div class="time-selector">
+            <button class="time-btn active" data-section="trending" data-days="7">7d</button>
+            <button class="time-btn" data-section="trending" data-days="14">14d</button>
+            <button class="time-btn" data-section="trending" data-days="30">30d</button>
+          </div>
+          <button class="filter-chip discover-filter" data-section="trending" data-filter="nsfw">NSFW Only</button>
         </div>
-        <button class="filter-chip discover-filter" data-section="trending" data-filter="nsfw">NSFW Only</button>
       </div>
       <div id="trending-list" class="subreddit-grid">
         <div class="loading">Loading trending subreddits...</div>
@@ -64,12 +66,14 @@
           <h2 class="section-title">💎 Hidden Gems</h2>
           <p class="section-subtitle">Active communities with smaller audiences</p>
         </div>
-        <div class="time-selector">
-          <button class="time-btn" data-section="gems" data-max="5000">< 5K</button>
-          <button class="time-btn active" data-section="gems" data-max="10000">< 10K</button>
-          <button class="time-btn" data-section="gems" data-max="25000">< 25K</button>
+        <div class="controls-inline">
+          <div class="time-selector">
+            <button class="time-btn" data-section="gems" data-max="5000">< 5K</button>
+            <button class="time-btn active" data-section="gems" data-max="10000">< 10K</button>
+            <button class="time-btn" data-section="gems" data-max="25000">< 25K</button>
+          </div>
+          <button class="filter-chip discover-filter" data-section="gems" data-filter="nsfw">NSFW Only</button>
         </div>
-        <button class="filter-chip discover-filter" data-section="gems" data-filter="nsfw">NSFW Only</button>
       </div>
       <div id="gems-list" class="subreddit-grid">
         <div class="loading">Loading hidden gems...</div>
@@ -83,12 +87,14 @@
           <h2 class="section-title">📈 Fastest Growing</h2>
           <p class="section-subtitle">Biggest increase in subreddit mentions over a range of days.</p>
         </div>
-        <div class="time-selector">
-          <button class="time-btn" data-section="growing" data-days="14">14d</button>
-          <button class="time-btn active" data-section="growing" data-days="30">30d</button>
-          <button class="time-btn" data-section="growing" data-days="60">60d</button>
+        <div class="controls-inline">
+          <div class="time-selector">
+            <button class="time-btn" data-section="growing" data-days="14">14d</button>
+            <button class="time-btn active" data-section="growing" data-days="30">30d</button>
+            <button class="time-btn" data-section="growing" data-days="60">60d</button>
+          </div>
+          <button class="filter-chip discover-filter" data-section="growing" data-filter="nsfw">NSFW Only</button>
         </div>
-        <button class="filter-chip discover-filter" data-section="growing" data-filter="nsfw">NSFW Only</button>
       </div>
       <div class="control-row fg-controls">
         <div class="toggle-group" data-name="min_recent">
