@@ -237,8 +237,8 @@ function updatePagination() {
     return b;
   };
 
-  const first = makeBtn('« First', 'First page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = 1; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
-  const prev = makeBtn('◀ Prev', 'Previous page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = Math.max(1, currentPage-1); loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+  const first = makeBtn('« First', 'First page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = 1; loadSubreddits(); } });
+  const prev = makeBtn('◀ Prev', 'Previous page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = Math.max(1, currentPage-1); loadSubreddits(); } });
 
   const pageInput = document.createElement('input');
   pageInput.type = 'number';
@@ -249,7 +249,7 @@ function updatePagination() {
   pageInput.addEventListener('change', ()=>{
     if(isLoading){ pageInput.value = String(currentPage); return; }
     const v = Number(pageInput.value||0);
-    if(Number.isFinite(v) && v>=1 && v<=totalPages){ currentPage = v; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if(Number.isFinite(v) && v>=1 && v<=totalPages){ currentPage = v; loadSubreddits(); }
     else { pageInput.value = String(currentPage); }
   });
   // Prevent Enter from causing a navigation/submit in some browsers
@@ -262,8 +262,8 @@ function updatePagination() {
 
   const pageTotal = document.createElement('span'); pageTotal.className = 'muted ml-6'; pageTotal.textContent = `/ ${totalPages}`;
 
-  const next = makeBtn('Next ▶', 'Next page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = Math.min(totalPages, currentPage+1); loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
-  const last = makeBtn('Last »', 'Last page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = totalPages; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+  const next = makeBtn('Next ▶', 'Next page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = Math.min(totalPages, currentPage+1); loadSubreddits(); } });
+  const last = makeBtn('Last »', 'Last page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = totalPages; loadSubreddits(); } });
 
   ctr.appendChild(first);
   ctr.appendChild(prev);
