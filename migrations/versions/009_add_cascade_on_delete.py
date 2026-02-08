@@ -1,14 +1,14 @@
 """Add ON DELETE CASCADE to comment->post and mention->comment FKs
-Revision ID: 009_add_cascade_on_delete
-Revises: 008_add_original_poster_and_keywords
+Revision ID: 009
+Revises: 008
 Create Date: 2026-02-08
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = '009_add_cascade_on_delete'
-down_revision = '008_add_original_poster_and_keywords'
+revision = '009'
+down_revision = '008'
 branch_labels = None
 depends_on = None
 

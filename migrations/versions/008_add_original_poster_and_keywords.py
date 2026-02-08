@@ -7,8 +7,8 @@ Create Date: 2026-02-08
 from alembic import op
 import sqlalchemy as sa
 
-revision = '008_add_original_poster_and_keywords'
-down_revision = '007_add_scan_priority'
+revision = '008'
+down_revision = '007'
 branch_labels = None
 depends_on = None
 
