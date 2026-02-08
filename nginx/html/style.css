@@ -229,9 +229,6 @@ header {
   flex-wrap: wrap;
   flex-direction: row;
 }
-
-
-
 .btn {
   border: 1px solid var(--border);
   background: var(--panel);
@@ -790,7 +787,6 @@ th.sticky {
 /* Pagination control helper */
 .pagination-controls { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
 .flex-spacer { margin-right: auto; }
-# Pagination and control helpers
 .pagination-row { display: flex; gap: 8px; align-items: center; }
 .input-small { width: 56px; }
 .ml-6 { margin-left: 6px; }
