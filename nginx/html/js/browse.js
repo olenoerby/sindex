@@ -228,6 +228,7 @@ function updatePagination() {
 
   const makeBtn = (text, aria, disabled, onClick) => {
     const b = document.createElement('button');
+    b.type = 'button';
     b.className = 'page-btn';
     b.textContent = text;
     b.setAttribute('aria-label', aria);
@@ -250,6 +251,13 @@ function updatePagination() {
     const v = Number(pageInput.value||0);
     if(Number.isFinite(v) && v>=1 && v<=totalPages){ currentPage = v; loadSubreddits(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     else { pageInput.value = String(currentPage); }
+  });
+  // Prevent Enter from causing a navigation/submit in some browsers
+  pageInput.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      pageInput.dispatchEvent(new Event('change'));
+    }
   });
 
   const pageTotal = document.createElement('span'); pageTotal.className = 'muted ml-6'; pageTotal.textContent = `/ ${totalPages}`;
