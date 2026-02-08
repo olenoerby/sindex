@@ -16,6 +16,8 @@ class Post(Base):
     url = Column(Text)
     # timestamp when this post was last scanned for comments
     last_scanned = Column(DateTime, nullable=True)
+    subreddit_id = Column(Integer, ForeignKey('subreddit.id'), nullable=True)
+    original_poster = Column(String, nullable=True)
     comments = relationship('Comment', back_populates='post')
 
 
@@ -103,6 +105,7 @@ class SubredditScanConfig(Base):
     active = Column(Boolean, nullable=False, default=True)
     # Scan priority: 1 (highest), 2 (high), 3 (normal/default), 4 (low)
     priority = Column(Integer, nullable=False, default=3)
+    keywords = Column(Text, nullable=True)
     # timestamps
     created_at = Column(DateTime, server_default=func.now())
 

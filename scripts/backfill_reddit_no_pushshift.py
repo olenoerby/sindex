@@ -581,6 +581,124 @@ def crawl_subreddit_html(subreddit_name: str, query_phrase: str, sleep_between: 
         time.sleep(sleep_between)
 
 
+def crawl_user_html(username: str, query_phrase: str, sleep_between: float, debug: bool = False):
+    """Crawl old.reddit.com user submitted pages (HTML) following 'next' links.
+    Yields SimpleNamespace objects for posts whose title contains `query_phrase` (case-insensitive).
+    All HTTP calls are printed to stdout. This function intentionally does not use any JSON endpoints.
+    """
+    headers = {'User-Agent': os.environ.get('REDDIT_USER_AGENT', 'backfill-script/0.1')}
+    url = f"https://old.reddit.com/user/{username}/submitted/"
+    seen_ids = set()
+    lower_phrase = (query_phrase or '').lower()
+    import re
+
+    page_num = 1
+    while url:
+        try:
+            # announce the call
+            print(f"HTTP CALL: GET {url}")
+            r = requests.get(url, headers=headers, timeout=30)
+            print(f"HTTP STATUS: {r.status_code} for {url}")
+        except Exception as e:
+            print(f"HTTP error while crawling {url}: {e}")
+            break
+
+        if r.status_code == 429:
+            ra = None
+            try:
+                ra = int(r.headers.get('Retry-After'))
+            except Exception:
+                ra = None
+            if ra is None:
+                ra = max(30, int(sleep_between * 5))
+            print(f"Rate limited (429) for {url}; sleeping {ra}s")
+            time.sleep(ra)
+            continue
+        if r.status_code != 200:
+            print(f"Non-200 {r.status_code} for {url}")
+            break
+
+        soup = BeautifulSoup(r.text, 'html.parser')
+        things = soup.find_all('div', class_='thing')
+        fetched = len(things)
+        matched = 0
+        if debug:
+            print(f"HTML: fetched {fetched} 'thing' elements from {url}")
+
+        for div in things:
+            a = div.find('a', class_='title')
+            if not a:
+                continue
+            title = (a.get_text() or '').strip()
+            href = a.get('href') or ''
+            if href.startswith('/'):
+                permalink = 'https://reddit.com' + href
+            else:
+                permalink = href
+
+            # extract id from permalink
+            m = re.search(r'/comments/([0-9a-zA-Z]+)/', permalink)
+            if m:
+                reddit_id = m.group(1)
+            else:
+                fullname = div.get('data-fullname') or div.get('data-name') or ''
+                if fullname.startswith('t3_'):
+                    reddit_id = fullname.split('_', 1)[1]
+                else:
+                    continue
+
+            if reddit_id in seen_ids:
+                continue
+
+            if lower_phrase in title.lower():
+                # try to get timestamp
+                ts = None
+                try:
+                    ts_attr = div.get('data-timestamp') or div.get('data-created-utc')
+                    if ts_attr:
+                        tval = int(ts_attr)
+                        if tval > 1e10:
+                            ts = int(tval / 1000)
+                        else:
+                            ts = tval
+                except Exception:
+                    ts = None
+
+                seen_ids.add(reddit_id)
+                matched += 1
+                sub = SimpleNamespace(
+                    id=reddit_id,
+                    created_utc=ts or 0,
+                    author=div.get('data-author') or '',
+                    title=title,
+                    subreddit=SimpleNamespace(display_name=''),
+                    permalink=permalink,
+                )
+                try:
+                    print(f"FOUND (user-html): id={sub.id} title={getattr(sub,'title','')[:120]!r}")
+                except Exception:
+                    pass
+                yield sub
+
+        try:
+            print(f"PAGE {page_num}: fetched={fetched} matched_new={matched} url={url}")
+        except Exception:
+            pass
+        page_num += 1
+
+        next_btn = soup.find('span', class_='next-button')
+        if next_btn:
+            a = next_btn.find('a')
+            if a and a.get('href'):
+                url = a.get('href')
+            else:
+                url = None
+        else:
+            url = None
+
+        time.sleep(sleep_between)
+
+
 def write_csv_row(writer, fh, sub, simple: bool = False, source='reddit'):
     """Write a row to CSV and flush immediately. If `simple` write only id,title,permalink."""
     if simple:
@@ -616,94 +734,46 @@ def write_csv_row(writer, fh, sub, simple: bool = False, source='reddit'):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--subreddit', default='wowthissubexists')
-    parser.add_argument('--mode', choices=['author', 'title'], required=True)
-    parser.add_argument('--value', required=True, help='Author name or title phrase')
-    parser.add_argument('--window-days', type=int, default=30)
-    parser.add_argument('--years', type=int, default=11, help='How many years back to scan')
-    parser.add_argument('--output', default='backfill_results.csv')
-    parser.add_argument('--verify', action='store_true', help='Fetch each submission to verify permalink')
-    parser.add_argument('--sleep', type=float, default=2.0, help='Seconds between window searches')
-    parser.add_argument('--simple', action='store_true', help='Write minimal CSV with columns: id,title,permalink and flush each row')
-    parser.add_argument('--site-wide', action='store_true', help='Search across all subreddits instead of a single subreddit')
-    parser.add_argument('--weekly', action='store_true', help='Use 7-day windows (helpful for weekly threads)')
-    parser.add_argument('--start-year', type=int, default=None, help='Start year (inclusive) for scanning')
-    parser.add_argument('--end-year', type=int, default=None, help='End year (inclusive) for scanning')
-    parser.add_argument('--debug', action='store_true', help='Dump per-request JSON payloads for debugging')
-    parser.add_argument('--full', action='store_true', help='Crawl entire subreddit via /new.json and filter titles locally')
-    parser.add_argument('--web-crawl', action='store_true', help='Crawl subreddit HTML pages (old.reddit.com) following next links')
-    args = parser.parse_args()
 
-    reddit = make_reddit()
-
-    # Determine start and end timestamps. Allow explicit start/end years.
-    if args.end_year:
-        end_dt = datetime(args.end_year, 12, 31, 23, 59, 59)
-    else:
-        end_dt = datetime.utcnow()
-
-    if args.start_year:
-        start_dt = datetime(args.start_year, 1, 1, 0, 0, 0)
-    else:
-        start_dt = end_dt - timedelta(days=365 * args.years)
-
+    # Custom: Crawl /r/wowthissubexists for posts by AutoModerator containing 'Fap Friday' in title
+    subreddit_name = 'wowthissubexists'
+    author_name = 'AutoModerator'
+    phrase = 'Fap Friday'
+    output_file = 'backfill_AutoModerator_FapFriday.csv'
+    sleep_between = 7.5  # stay under 8 calls/min
+    years = 11
+    end_dt = datetime.utcnow()
+    start_dt = end_dt - timedelta(days=365 * years)
     end_ts = epoch(end_dt)
     start_ts = epoch(start_dt)
+    query_base = f'author:{author_name} AND title:"{phrase}"'
+    fieldnames = ['reddit_post_id', 'title', 'url', 'created_utc']
 
-    if args.mode == 'author':
-        query_base = f'author:{args.value}'
-    else:
-        # quote the phrase for title search
-        query_base = f'title:\"{args.value}\"'
+    print(f"Crawling /r/{subreddit_name} for posts by {author_name} containing '{phrase}' in title...")
+    print(f"Output CSV: {output_file}")
+    print(f"Date range: {datetime.fromtimestamp(start_ts).date()} to {datetime.fromtimestamp(end_ts).date()}")
 
-    # If user wants weekly scanning, use 7-day windows which is better for weekly threads
-    if args.weekly:
-        args.window_days = 7
-
-    if args.simple:
-        fieldnames = ['id', 'title', 'permalink']
-    else:
-        fieldnames = ['id', 'created_utc', 'author', 'title', 'subreddit', 'permalink', 'source']
-
-    with open(args.output, 'w', newline='', encoding='utf-8') as fh:
+    reddit = make_reddit()
+    with open(output_file, 'w', newline='', encoding='utf-8') as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
-
-        # first pass: collect submissions and write immediately
-        ids = []
-        display_range = f"{datetime.fromtimestamp(start_ts).date()} to {datetime.fromtimestamp(end_ts).date()}"
-        print(f"OUTPUT: {args.output} simple={args.simple}")
-        if args.web_crawl and not reddit:
-            print(f"Crawling /r/{args.subreddit} HTML pages for full history, filtering title for {args.value}")
-            for sub in crawl_subreddit_html(args.subreddit, args.value, args.sleep, debug=args.debug):
-                write_csv_row(writer, fh, sub, simple=args.simple, source='html')
-                ids.append(sub.id)
-        elif args.full and not reddit:
-            print(f"Crawling /r/{args.subreddit}/new.json for full history, filtering title for {args.value}")
-            for sub in crawl_subreddit_new_anonymous(args.subreddit, args.value, args.sleep, debug=args.debug):
-                write_csv_row(writer, fh, sub, simple=args.simple, source='new')
-                ids.append(sub.id)
-        else:
-            print(f"Scanning {'site-wide' if args.site_wide else f'r/' + args.subreddit} for {args.mode}={args.value} from {display_range}")
-            for sub in search_windows(reddit, args.subreddit, query_base, start_ts, end_ts, args.window_days, args.sleep, site_wide=args.site_wide, debug=getattr(args, 'debug', False)):
-                write_csv_row(writer, fh, sub, simple=args.simple, source='search')
-                ids.append(sub.id)
-
-        # optional verify pass to fetch canonical permalinks
-        if args.verify and ids:
-            print(f"Verifying {len(ids)} submissions via Reddit API (this will be slower)")
-            for _id in tqdm(ids):
-                try:
-                    sub = reddit.submission(id=_id)
-                    # rewrite row with verified data
-                    write_csv_row(writer, sub, source='reddit_api')
-                    time.sleep(1.0)
-                except Exception:
-                    time.sleep(1.0)
-                    continue
-
-    print(f"Done. Results written to {args.output}")
+        count = 0
+        for sub in search_windows(reddit, subreddit_name, query_base, start_ts, end_ts, 30, sleep_between, site_wide=False, debug=False):
+            row = {
+                'reddit_post_id': sub.id,
+                'title': getattr(sub, 'title', ''),
+                'url': getattr(sub, 'permalink', ''),
+                'created_utc': int(getattr(sub, 'created_utc', 0)) if getattr(sub, 'created_utc', None) else 0,
+            }
+            writer.writerow(row)
+            try:
+                fh.flush()
+                os.fsync(fh.fileno())
+            except Exception:
+                pass
+            print(f"WROTE: id={row['reddit_post_id']} title={row['title'][:80]!r} url={row['url']}")
+            count += 1
+    print(f"Done. {count} results written to {output_file}")
 
 
 if __name__ == '__main__':

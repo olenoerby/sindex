@@ -1024,10 +1024,19 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     title = data.get('title')
     created_utc = int(data.get('created_utc') or 0)
     url = data.get('permalink')
+    author = data.get('author')
     # If caller requires Fap Friday posts, enforce that; otherwise process any post
     if require_fap_friday:
         if 'fap friday' not in (title or '').lower():
             return (False, set())
+
+    # If keywords are set for this subreddit, filter by them
+    if source_subreddit_name:
+        scan_cfg = session.query(models.SubredditScanConfig).filter_by(subreddit_name=source_subreddit_name.lower()).first()
+        if scan_cfg and scan_cfg.keywords:
+            keywords = [k.strip().lower() for k in scan_cfg.keywords.split(',') if k.strip()]
+            if not any(kw in (title or '').lower() for kw in keywords):
+                return (False, set())
 
     # Resolve or create a Subreddit row for the source subreddit (where this post was found)
     source_sub = None
@@ -1112,7 +1121,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     if not found:
         if not existing:
             try:
-                post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url)
+                post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, original_poster=author)
+                if source_sub:
+                    post.subreddit_id = source_sub.id
+                post.last_scanned = now
                 session.add(post)
                 session.commit()
                 try:
@@ -1157,7 +1169,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     # Ensure a Post row exists (create if missing)
     if not existing:
         try:
-            post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url)
+            post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, original_poster=author)
+            if source_sub:
+                post.subreddit_id = source_sub.id
+            post.last_scanned = now
             session.add(post)
             session.commit()
             try:
@@ -1173,6 +1188,13 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
             logger.info(f"Processing post {reddit_id} ({format_ts(created_utc)}) - {len(missing)} new comments{source_sub_str}")
     else:
         post = existing
+        # Update subreddit_id, original_poster, and last_scanned
+        if source_sub:
+            post.subreddit_id = source_sub.id
+        post.original_poster = author
+        post.last_scanned = now
+        session.add(post)
+        session.commit()
         source_sub_str = f" from /r/{source_subreddit_name}" if source_subreddit_name else ""
         logger.info(f"Rescanning post {reddit_id} ({format_ts(post.created_utc)}) - {len(missing)} new, {len(edited)} edited comments{source_sub_str}")
 
