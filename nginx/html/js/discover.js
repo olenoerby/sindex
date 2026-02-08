@@ -52,6 +52,51 @@ function createSubredditCard(sub, type = 'default') {
   `;
 }
 
+// Helper to remove any existing show-more button for a container
+function _removeShowMore(container){
+  const btn = document.getElementById(container.id + '-showmore');
+  if (btn) btn.remove();
+}
+
+// Render list with collapse to 5 and optional "Show more" to expand to 10
+function _renderSubredditList(container, items, type){
+  const maxDefault = 5;
+  const maxExpanded = 10;
+  _removeShowMore(container);
+
+  if (!items || items.length === 0){
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>No subreddits found</p></div>';
+    return;
+  }
+
+  const showCount = Math.min(items.length, maxDefault);
+  container.innerHTML = items.slice(0, showCount).map(sub => createSubredditCard(sub, type)).join('');
+
+  if (items.length > maxDefault) {
+    const btn = document.createElement('button');
+    btn.id = container.id + '-showmore';
+    btn.className = 'show-more-btn';
+    btn.dataset.expanded = 'false';
+    btn.textContent = `Show more (${Math.min(items.length, maxExpanded)})`;
+
+    btn.addEventListener('click', () => {
+      const expanded = btn.dataset.expanded === 'true';
+      if (!expanded){
+        const count = Math.min(items.length, maxExpanded);
+        container.innerHTML = items.slice(0, count).map(sub => createSubredditCard(sub, type)).join('');
+        btn.textContent = 'Show less';
+        btn.dataset.expanded = 'true';
+      } else {
+        container.innerHTML = items.slice(0, Math.min(items.length, maxDefault)).map(sub => createSubredditCard(sub, type)).join('');
+        btn.textContent = `Show more (${Math.min(items.length, maxExpanded)})`;
+        btn.dataset.expanded = 'false';
+      }
+    });
+
+    container.insertAdjacentElement('afterend', btn);
+  }
+}
+
 // Load data functions
 async function loadTrending(days = 7) {
   const container = document.getElementById('trending-list');
@@ -72,8 +117,9 @@ async function loadTrending(days = 7) {
     }
 
     if (items.length > 0) {
-      container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'trending')).join('');
+      _renderSubredditList(container, items, 'trending');
     } else {
+      _removeShowMore(container);
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No trending subreddits found</p></div>';
     }
   } catch (error) {
@@ -100,8 +146,9 @@ async function loadHiddenGems(maxSubs = 10000) {
     }
 
     if (items.length > 0) {
-      container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'gem')).join('');
+      _renderSubredditList(container, items, 'gem');
     } else {
+      _removeShowMore(container);
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">💎</div><p>No hidden gems found</p></div>';
     }
   } catch (error) {
@@ -134,8 +181,9 @@ async function loadFastestGrowing(days = 30, min_recent = 3, min_growth = 1.1) {
     }
 
     if (items.length > 0) {
-      container.innerHTML = items.slice(0, 12).map(sub => createSubredditCard(sub, 'growing')).join('');
+      _renderSubredditList(container, items, 'growing');
     } else {
+      _removeShowMore(container);
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>No growing subreddits found</p></div>';
     }
   } catch (error) {
