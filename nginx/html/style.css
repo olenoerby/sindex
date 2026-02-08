@@ -1476,7 +1476,9 @@ th.sticky {
   .nav-text { display: none; }
 
   /* Keep consistent left/right spacing across tablet & mobile */
-  .page, .container, .discover-container, .browse-container { padding-left: 12px !important; padding-right: 12px !important; }
+  .page, .container, .discover-container { padding-left: 12px !important; padding-right: 12px !important; }
+  /* `browse-container` should use em-based spacing so it scales with font-size */
+  .browse-container { padding-left: 1.2em !important; padding-right: 1.2em !important; }
   body > h1, body > .container, body > .page { padding-left: 12px !important; padding-right: 12px !important; }
 
   /* Slight responsive typographic tweaks */
