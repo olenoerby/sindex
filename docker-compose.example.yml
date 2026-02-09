@@ -22,7 +22,7 @@ services:
     depends_on:
       - db
     env_file:
-      - .env
+      - .env.example
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
       SERVICE_NAME: api
@@ -40,7 +40,7 @@ services:
     depends_on:
       - db
     env_file:
-      - .env
+      - .env.example
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pineapple}:${POSTGRES_PASSWORD:-pineapple}@db:5432/${POSTGRES_DB:-pineapple}
       REDDIT_USER: ${REDDIT_USER:-WeirdPineapple}
@@ -50,6 +50,15 @@ services:
       SKIP_RECENTLY_SCANNED_HOURS: ${SKIP_RECENTLY_SCANNED_HOURS:-0}
       SERVICE_NAME: scanner
       TZ: Europe/Copenhagen
+      # Scanner tuning (example values to force full rescans)
+      METADATA_REFRESH_SECONDS: ${METADATA_REFRESH_SECONDS:-0}
+      SCAN_FOR_METADATA_FIRST: ${SCAN_FOR_METADATA_FIRST:-true}
+      POST_INITIAL_SCAN_DAYS: ${POST_INITIAL_SCAN_DAYS:-36500}
+      POST_RESCAN_DAYS: ${POST_RESCAN_DAYS:-36500}
+      POST_RESCAN_DURATION: ${POST_RESCAN_DURATION:-86400}
+      SCAN_SLEEP_SECONDS: ${SCAN_SLEEP_SECONDS:-60}
+      METADATA_STALE_HOURS: ${METADATA_STALE_HOURS:-0}
+      MAX_PAGES_PER_SUBREDDIT: ${MAX_PAGES_PER_SUBREDDIT:-0}
     networks:
       - pineapple-net
 
