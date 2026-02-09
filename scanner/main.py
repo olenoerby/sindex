@@ -1994,30 +1994,39 @@ def main_loop():
     logger.info("wait_for_db_startup() complete")
     ensure_tables()
     logger.info("ensure_tables() complete")
-    
-    # Check that all scan configuration subreddits are available
-    check_scan_subreddits_availability()
-    
-    # Optionally start with metadata refresh before scanning
+    # Phase 1: Startup (DB, rate limiter, initial configs, optional prefetch)
+    logger.info("Initializing rate limiter and loading initial scan configs")
+    try:
+        with Session(engine) as session:
+            initial_scan_configs, initial_ignored_subreddits, initial_ignored_users = load_scan_config_from_db(session)
+    except Exception:
+        initial_scan_configs = {}
+        initial_ignored_subreddits = set()
+        initial_ignored_users = set()
+
+    # Optionally prefetch high-value metadata at startup
     if SCAN_FOR_METADATA_FIRST:
-        logger.info(f"SCAN_FOR_METADATA_FIRST enabled. Running initial metadata refresh for {METADATA_REFRESH_SECONDS} seconds...")
-        refresh_metadata_phase(METADATA_REFRESH_SECONDS)
-        logger.info("Initial metadata refresh complete. Starting scanner main loop.")
+        logger.info(f"SCAN_FOR_METADATA_FIRST enabled. Running startup metadata prefetch for {METADATA_REFRESH_SECONDS} seconds...")
+        startup_metadata_prefetch()
+        logger.info("Startup metadata prefetch complete")
     else:
-        logger.info("Starting scanner main loop (skip startup metadata refresh)")
-    
+        logger.info("Skipping startup metadata prefetch")
+
+    # Phase 2: Check availability of scan subreddits configured in DB
+    check_scan_subreddits_availability()
+
+    # Enter main loop that follows the optimal phase ordering
     while True:
         scan_start_time = time.time()
         mentions_before = 0
         try:
-            # Load scan configuration from database
+            # Phase 2 (repeated each iteration): Load Scan Configs
             with Session(engine) as session:
                 scan_configs, ignored_subreddits, ignored_users = load_scan_config_from_db(session)
-            
-            # If scan configs exist, iterate each subreddit and fetch its recent posts
+
+            # Phase 3: Primary Scan Loop (Scan Targets)
             if scan_configs:
                 discovered_overall = set()
-                exit_after_batch = False
                 with Session(engine) as session:
                     # Record scan start time and initial mention count
                     try:
@@ -2028,64 +2037,59 @@ def main_loop():
                             session.commit()
                     except Exception:
                         logger.debug('Failed to record scan start time')
-                    
-                    # Sort subreddits by priority (lower number = higher priority)
+
                     sorted_configs = sorted(scan_configs.items(), key=lambda x: x[1].get('priority', 3))
-                    
+
                     for subname, config in sorted_configs:
                         allowed_users = config['allowed_users']
                         nsfw_only = config['nsfw_only']
                         priority = config.get('priority', 3)
-                        
-                        # Determine display label for this entity
+
                         is_user = is_user_profile(subname)
                         if is_user:
                             username = subname[2:] if subname.startswith('u_') else subname
                             entity_label = f"/u/{username}"
                         else:
                             entity_label = f"/r/{subname}"
-                        
-                        subreddit_processed_count = 0  # Track posts processed for this specific subreddit
+
+                        subreddit_processed_count = 0
                         after_sub = None
                         while True:
                             try:
-                                # Use distributed rate limiter for coordination
+                                # Rate limiting applies globally across phases
                                 if distributed_rate_limiter:
                                     distributed_rate_limiter.wait_if_needed()
                                 else:
                                     rate_limiter.wait_if_needed()
                                 data = fetch_subreddit_posts(subname, after_sub)
                             except Exception as e:
-                                # Check if it's a 429 rate limit error
                                 error_str = str(e)
                                 error_type = type(e).__name__
                                 if '429' in error_str:
                                     logger.warning(f"Rate limited on {entity_label}: {error_type}: {error_str} - retrying after wait")
-                                    # Retry the same subreddit (continue to next iteration of while loop)
                                     continue
                                 else:
                                     logger.warning(f"Exception fetching {entity_label} (type={error_type}): {error_str}")
                                     logger.exception(f"Full traceback for {entity_label}")
                                 break
+
                             children = data.get('data', {}).get('children', [])
                             if not children:
                                 break
                             if not after_sub:
                                 logger.info(f"Scanning new posts from {entity_label} (priority {priority})")
+
                             for p in children:
                                 pdata = p.get('data', {})
-                                
-                                # Apply NSFW filter if configured
                                 if nsfw_only:
                                     over18 = bool(pdata.get('over_18') or pdata.get('over18'))
                                     if not over18:
                                         continue
-                                
-                                # Apply user filter if configured
                                 if allowed_users is not None:
                                     author = (pdata.get('author') or '').strip().lower()
                                     if author not in allowed_users:
                                         continue
+
                                 processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
                                 if processed:
                                     subreddit_processed_count += 1
@@ -2094,15 +2098,15 @@ def main_loop():
                                 if TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT:
                                     logger.info(f"Reached TEST_MAX_POSTS_PER_SUBREDDIT={TEST_MAX_POSTS_PER_SUBREDDIT} for {entity_label}, moving to next subreddit.")
                                     break
+
                             after_sub = data.get('data', {}).get('after')
-                            # Stop pagination if we've hit the per-subreddit limit or no more pages
                             if not after_sub or (TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT):
                                 break
-                # If we discovered any subreddits in this batch, immediately fetch their metadata
+
+                # Phase 5: Immediate Metadata Discovery (fetch metadata for discovered subs)
                 if discovered_overall:
                     logger.info(f"Discovered {len(discovered_overall)} new subreddits during scan")
                     for sname in discovered_overall:
-                        # Fetch metadata immediately for newly discovered subreddits
                         with Session(engine) as meta_session:
                             sub = meta_session.query(models.Subreddit).filter(models.Subreddit.name == sname.lower()).first()
                             if sub:
@@ -2111,15 +2115,29 @@ def main_loop():
                                 else:
                                     rate_limiter.wait_if_needed()
                                 update_subreddit_metadata(meta_session, sub)
-                                if distributed_rate_limiter:
-                                    distributed_rate_limiter.record_api_call()
-                                else:
-                                    rate_limiter.record_call()
+                                try:
+                                    if distributed_rate_limiter:
+                                        distributed_rate_limiter.record_api_call()
+                                    else:
+                                        rate_limiter.record_call()
+                                except Exception:
+                                    pass
                                 try:
                                     meta_session.commit()
                                 except Exception:
                                     meta_session.rollback()
-                
+
+                # Phase 6: Metadata Refresh Phase
+                logger.info(f'Scan complete. Starting metadata refresh phase for {METADATA_REFRESH_SECONDS} seconds...')
+                refresh_metadata_phase(METADATA_REFRESH_SECONDS)
+
+                # Phase 7: Post Rescan Phase
+                try:
+                    logger.info(f'Metadata refresh complete. Starting post rescan phase for {POST_RESCAN_DURATION} seconds...')
+                    rescan_posts_phase(POST_RESCAN_DURATION)
+                except Exception:
+                    logger.exception('Post rescan phase failed')
+
                 # Record scan completion metrics
                 with Session(engine) as session:
                     try:
@@ -2129,24 +2147,12 @@ def main_loop():
                             record_scan_completion(session, scan_start_time, new_mentions)
                     except Exception:
                         logger.debug('Failed to record scan completion')
-                
-                # After scanning completes, run metadata refresh phase
-                logger.info(f'Scan complete. Starting metadata refresh phase for {METADATA_REFRESH_SECONDS} seconds...')
-                refresh_metadata_phase(METADATA_REFRESH_SECONDS)
 
-                # After metadata refresh completes, optionally rescan posts from DB
-                try:
-                    logger.info(f'Metadata refresh complete. Starting post rescan phase for {POST_RESCAN_DURATION} seconds...')
-                    rescan_posts_phase(POST_RESCAN_DURATION)
-                except Exception:
-                    logger.exception('Post rescan phase failed')
-
-                # After post rescan completes, sleep briefly before next scan
+                # Pause before next iteration
                 logger.info(f'Sleeping {SCAN_SLEEP_SECONDS} seconds before next scan iteration.')
                 time.sleep(SCAN_SLEEP_SECONDS)
             else:
-                # No scan configs found in database — operate in idle mode:
-                # Just run continuous metadata refresh
+                # Phase 8: Idle Mode - continuous metadata refresh when no scan configs
                 logger.warning('No subreddit scan configs found in database. Running continuous metadata refresh.')
                 refresh_metadata_phase(METADATA_REFRESH_SECONDS)
                 logger.info('Idle metadata refresh complete. Sleeping 10 minutes before checking for scan configs again.')
