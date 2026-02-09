@@ -637,10 +637,37 @@ def health():
         try:
             # simple DB op
             _ = session.query(func.count(models.Subreddit.id)).limit(1).scalar()
-            return {"ok": True, "db": True}
+            # Determine scanner health from analytics.last_scan_started
+            scanner_ok = False
+            scanner_last = None
+            try:
+                analytics = session.query(models.Analytics).first()
+                if analytics and getattr(analytics, 'last_scan_started', None):
+                    scanner_last = getattr(analytics, 'last_scan_started')
+                    # Consider scanner healthy if it started within threshold minutes
+                    threshold_min = int(os.getenv('SCANNER_HEALTH_THRESHOLD_MINUTES', '10'))
+                    try:
+                        if isinstance(scanner_last, datetime):
+                            age = datetime.utcnow() - (scanner_last.replace(tzinfo=None) if scanner_last.tzinfo else scanner_last)
+                        else:
+                            age = timedelta.max
+                        scanner_ok = age <= timedelta(minutes=threshold_min)
+                    except Exception:
+                        scanner_ok = False
+            except Exception:
+                api_logger.exception("Scanner health check failed")
+
+            out = {"api-health": True, "db-health": True, "scanner-health": scanner_ok}
+            if scanner_last:
+                try:
+                    out["scanner-last-scan-started"] = scanner_last.isoformat() if isinstance(scanner_last, datetime) else str(scanner_last)
+                except Exception:
+                    out["scanner-last-scan-started"] = str(scanner_last)
+
+            return out
         except Exception as e:
             api_logger.exception("DB health check failed")
-            return {"ok": True, "db": False, "error": str(e)}
+            return {"api-health": True, "db-health": False, "error": str(e)}
 
 
 @app.get("/stats")
