@@ -1168,11 +1168,13 @@ def stats_top_commenters(limit: int = 20, days: int = 90):
         # back to counting `comments.username` if no mention-based data exists.
         out = []
         try:
+            # Count distinct comments per user (each comment may mention multiple subreddits,
+            # so we count unique Comment IDs to compute unique comments authored by the user)
             mrows = session.query(
                 models.Mention.user_id,
-                func.count(models.Mention.id).label('mentions')
+                func.count(func.distinct(models.Mention.comment_id)).label('comments')
             ).filter(models.Mention.user_id != None).filter(models.Mention.timestamp >= start_ts)
-            mrows = mrows.group_by(models.Mention.user_id).order_by(desc('mentions')).limit(limit).all()
+            mrows = mrows.group_by(models.Mention.user_id).order_by(desc('comments')).limit(limit).all()
             if mrows:
                 for r in mrows:
                     out.append({'user_id': r[0], 'comments': int(r[1] or 0)})
@@ -1182,15 +1184,39 @@ def stats_top_commenters(limit: int = 20, days: int = 90):
 
         # Fallback: count Comment.username if mentions are not available
         try:
+            # Fallback: count distinct comments by username within the requested window
             crows = session.query(
                 models.Comment.username,
                 func.count(models.Comment.id).label('comments')
-            ).filter(models.Comment.username != None)
+            ).filter(models.Comment.username != None).filter(models.Comment.created_utc >= start_ts)
             crows = crows.group_by(models.Comment.username).order_by(desc('comments')).limit(limit).all()
             for r in crows:
                 out.append({'user_id': r[0], 'comments': int(r[1] or 0)})
         except Exception:
             api_logger.exception('Failed to compute top commenters from comments')
+
+        return {"items": out}
+
+
+@app.get("/stats/top_mentioners")
+@cache_response(ttl_seconds=60)
+def stats_top_mentioners(limit: int = 20, days: int = 90):
+    """Top users by number of unique subreddits they mentioned."""
+    limit = max(1, min(500, int(limit)))
+    days = max(1, min(3650, int(days)))
+    start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+    with Session(engine) as session:
+        out = []
+        try:
+            rows = session.query(
+                models.Mention.user_id,
+                func.count(func.distinct(models.Mention.subreddit_id)).label('unique_subreddits')
+            ).filter(models.Mention.user_id != None).filter(models.Mention.timestamp >= start_ts)
+            rows = rows.group_by(models.Mention.user_id).order_by(desc('unique_subreddits')).limit(limit).all()
+            for r in rows:
+                out.append({'user_id': r[0], 'unique_subreddits': int(r[1] or 0)})
+        except Exception:
+            api_logger.exception('Failed to compute top mentioners from mentions')
 
         return {"items": out}
 
