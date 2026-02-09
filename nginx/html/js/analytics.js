@@ -69,6 +69,8 @@ function updateCardTitles(){
   const newSubsDescEl = document.getElementById('newSubsDesc');
   if(newSubsDescEl) newSubsDescEl.textContent = `First-time mentions in the last ${currentDays >= 999999 ? 'all days' : currentDays + ' days'}.`;
   document.getElementById('topCommenterTitle').textContent = `Top commenter (${rangeText})`;
+    const tmEl = document.getElementById('topMentionerTitle');
+    if(tmEl) tmEl.textContent = `Top mentioner (${rangeText})`;
 }
 
 // Update small subtitles for analytic tables to show active date range
@@ -619,6 +621,24 @@ async function fetchTopBlocks(){
           });
           const table = document.getElementById('topMentionersTable');
           if(table) table.insertAdjacentElement('afterend', btn);
+        }
+        // Update top mentioner card with first item
+        const firstMentioner = items[0];
+        const topMentionerNameEl = document.getElementById('topMentionerName');
+        const topMentionerCountEl = document.getElementById('topMentionerCount');
+        if(firstMentioner && firstMentioner.user_id){
+          const tn = firstMentioner.user_id.toLowerCase() === '[deleted]' ? '[deleted]' : firstMentioner.user_id;
+          if(topMentionerNameEl){
+            if(tn === '[deleted]'){
+              topMentionerNameEl.textContent = tn;
+            } else {
+              topMentionerNameEl.innerHTML = `<a href="https://www.reddit.com/user/${encodeURIComponent(tn)}/comments?sort=top" target="_blank" rel="noopener noreferrer">${tn}</a>`;
+            }
+          }
+          if(topMentionerCountEl) topMentionerCountEl.textContent = `${fmt(firstMentioner.unique_subreddits ?? firstMentioner.count ?? 0)} subreddits mentioned`;
+        } else {
+          if(topMentionerNameEl) topMentionerNameEl.textContent = '—';
+          if(topMentionerCountEl) topMentionerCountEl.textContent = '—';
         }
       }
     }
