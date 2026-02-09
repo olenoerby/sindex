@@ -49,7 +49,7 @@ from sqlalchemy import create_engine
 engine = create_engine(DATABASE_URL, echo=False, future=True)
 
 # FastAPI app
-app = FastAPI(title="Pineapple Index API")
+app = FastAPI(title="Sindex API")
 
 # Redis cache client (separate from rate limiter)
 try:
