@@ -398,7 +398,8 @@ async function fetchTopBlocks(){
           tbody.innerHTML = '';
           full.slice(0, count).forEach((row, idx) => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${idx+1}</td><td>/r/${row.name}</td><td>${fmt(row.mentions)}</td>`;
+            const subHref = `https://www.reddit.com/r/${encodeURIComponent(row.name)}`;
+            tr.innerHTML = `<td>${idx+1}</td><td><a href="${subHref}" target="_blank" rel="noopener noreferrer">/r/${row.name}</a></td><td>${fmt(row.mentions)}</td>`;
             tbody.appendChild(tr);
           });
         };
