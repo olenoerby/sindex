@@ -76,10 +76,10 @@ class DistributedRateLimiter:
                 
                 if elapsed < self.min_delay_seconds:
                     sleep_duration = self.min_delay_seconds - elapsed
-                        with temp_phase('Rate Limiting + Retries'):
-                            logger.info(f"Rate limit: sleeping {sleep_duration:.2f}s (min delay)")
-                            time.sleep(sleep_duration)
-                            current_time = time.time()
+                    with temp_phase('Rate Limiting + Retries'):
+                        logger.info(f"Rate limit: sleeping {sleep_duration:.2f}s (min delay)")
+                        time.sleep(sleep_duration)
+                        current_time = time.time()
             
             # Check calls per minute limit
             call_count_str = self.redis_client.get(REDIS_KEY_API_CALL_COUNT)
