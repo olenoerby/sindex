@@ -637,32 +637,41 @@ def health():
         try:
             # simple DB op
             _ = session.query(func.count(models.Subreddit.id)).limit(1).scalar()
-            # Determine scanner health from analytics.last_scan_started
+            # Prefer checking scanner via its HTTP health endpoint (safe, low-privilege).
             scanner_ok = False
             scanner_last = None
+            scanner_url = os.getenv('SCANNER_HEALTH_URL', os.getenv('SCANNER_URL', 'http://scanner:8001/health'))
             try:
-                analytics = session.query(models.Analytics).first()
-                if analytics and getattr(analytics, 'last_scan_started', None):
-                    scanner_last = getattr(analytics, 'last_scan_started')
-                    # Consider scanner healthy if it started within threshold minutes
-                    threshold_min = int(os.getenv('SCANNER_HEALTH_THRESHOLD_MINUTES', '10'))
-                    try:
-                        if isinstance(scanner_last, datetime):
-                            age = datetime.utcnow() - (scanner_last.replace(tzinfo=None) if scanner_last.tzinfo else scanner_last)
-                        else:
-                            age = timedelta.max
-                        scanner_ok = age <= timedelta(minutes=threshold_min)
-                    except Exception:
-                        scanner_ok = False
+                try:
+                    r = httpx.get(scanner_url, timeout=float(os.getenv('SCANNER_HEALTH_TIMEOUT_SECONDS', '1.0')))
+                    if r.status_code == 200:
+                        try:
+                            jr = r.json()
+                            scanner_ok = bool(jr.get('ok', True))
+                            scanner_last = jr.get('last_scan_started') or jr.get('last_scan_started')
+                        except Exception:
+                            scanner_ok = True
+                except Exception:
+                    # HTTP check failed; fall back to DB timestamp check
+                    api_logger.debug("Scanner HTTP health check failed, falling back to DB timestamp")
+                    analytics = session.query(models.Analytics).first()
+                    if analytics and getattr(analytics, 'last_scan_started', None):
+                        scanner_last = getattr(analytics, 'last_scan_started')
+                        threshold_min = int(os.getenv('SCANNER_HEALTH_THRESHOLD_MINUTES', '10'))
+                        try:
+                            if isinstance(scanner_last, datetime):
+                                age = datetime.utcnow() - (scanner_last.replace(tzinfo=None) if scanner_last.tzinfo else scanner_last)
+                            else:
+                                age = timedelta.max
+                            scanner_ok = age <= timedelta(minutes=threshold_min)
+                        except Exception:
+                            scanner_ok = False
             except Exception:
                 api_logger.exception("Scanner health check failed")
 
             out = {"api-health": True, "db-health": True, "scanner-health": scanner_ok}
             if scanner_last:
-                try:
-                    out["scanner-last-scan-started"] = scanner_last.isoformat() if isinstance(scanner_last, datetime) else str(scanner_last)
-                except Exception:
-                    out["scanner-last-scan-started"] = str(scanner_last)
+                out["scanner-last-scan-started"] = scanner_last
 
             return out
         except Exception as e:

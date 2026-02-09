@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 import sys
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 try:
     from redis import Redis
     REDIS_AVAILABLE = True
@@ -146,6 +148,62 @@ LAST_SUBREDDIT_REQUEST = 0.0
 TEST_MAX_POSTS_PER_SUBREDDIT = int(os.getenv('TEST_MAX_POSTS_PER_SUBREDDIT')) if os.getenv('TEST_MAX_POSTS_PER_SUBREDDIT') else None
 
 engine = create_engine(DATABASE_URL, future=True)
+
+
+class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Route HTTP server logs through scanner logger at debug level
+        try:
+            logger.debug("HTTP %s - %s" % (self.address_string(), format % args))
+        except Exception:
+            pass
+
+    def do_GET(self):
+        if self.path != '/health':
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        resp = {"ok": True}
+        try:
+            # Return last_scan_started from analytics table if present
+            with Session(engine) as s:
+                analytics = s.query(models.Analytics).first()
+                if analytics and getattr(analytics, 'last_scan_started', None):
+                    last = getattr(analytics, 'last_scan_started')
+                    try:
+                        resp['last_scan_started'] = last.isoformat() if hasattr(last, 'isoformat') else str(last)
+                    except Exception:
+                        resp['last_scan_started'] = str(last)
+            resp['pid'] = os.getpid()
+        except Exception as e:
+            resp = {"ok": False, "error": str(e)}
+
+        body = json.dumps(resp)
+        self.send_response(200 if resp.get('ok') else 500)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body.encode('utf-8'))))
+        self.end_headers()
+        try:
+            self.wfile.write(body.encode('utf-8'))
+        except Exception:
+            pass
+
+
+def start_health_server():
+    try:
+        port = int(os.getenv('SCANNER_HEALTH_PORT', '8001'))
+        host = os.getenv('SCANNER_HEALTH_HOST', '0.0.0.0')
+        server = _ThreadingHTTPServer((host, port), _HealthHandler)
+        t = threading.Thread(target=server.serve_forever, name='scanner-health-server', daemon=True)
+        t.start()
+        logger.info(f"Scanner health server started on {host}:{port}")
+    except Exception as e:
+        logger.exception(f"Failed to start scanner health server: {e}")
 
 # Initialize distributed rate limiter for coordination with metadata_worker
 try:
@@ -2260,4 +2318,6 @@ def main_loop():
 
 
 if __name__ == '__main__':
+    # Start lightweight health HTTP server for external checks
+    start_health_server()
     main_loop()
