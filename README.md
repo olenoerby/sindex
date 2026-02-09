@@ -1,65 +1,39 @@
 # Pineapple Subreddit Index
 
-A simple, read-only index of NSFW subreddit mentions. The system watches a small set of Reddit sources (a user account and a few subreddits), finds mentions of other subreddits in public comments, keeps some basic subreddit info up to date, and provides a search UI and a read-only API. It does not post or access private data.
+A simple, read-only index of NSFW subreddit mentions. It watches a few Reddit sources, finds mentions of other subreddits in public comments, keeps basic subreddit info current, and provides a small web UI and read-only API.
 
-## What it does (short)
-- Continuously watches configured Reddit sources for mentions of other subreddits.
-- Collects and deduplicates mentions with timestamps.
-- Keeps basic subreddit metadata (title, description, subscribers) reasonably fresh.
-- Serves a simple static UI and a read-only API for browsing results.
+Quick summary:
+- Watches configured Reddit sources and records subreddit mentions.
+- Keeps simple metadata (title, subscribers, description) reasonably fresh.
+- Exposes a small static UI and read-only API for browsing results.
 
-## How it's organized
-- `scanner/` — worker that discovers and records mentions.
-- `api/` — read-only web service serving the UI and API.
-- `nginx/html/` — static frontend files.
-- `db` — PostgreSQL stores posts, comments, subreddits, and mentions.
-
-## Quick start (local)
-Prereqs: Docker and docker-compose.
+Quick start (local):
 
 ```sh
 docker-compose build
 docker-compose up -d
 ```
 
-This starts the `api`, `scanner`, `db`, and `nginx` services.
+This runs the `api`, `scanner`, `db`, and `nginx` services.
 
-### Important settings
-Most useful options are set via environment variables in `.env` or in your compose setup. Key ones:
-- `DATABASE_URL` — database connection string
-- `POST_INITIAL_SCAN_DAYS` — how far back to initially scan posts (empty = no limit)
-- `POST_RESCAN_DAYS` — how far back to rescan existing posts (empty = rescan all)
-- `SKIP_RECENTLY_SCANNED_HOURS` — skip posts scanned very recently
+Main notes:
+- Configuration is database-driven via `subreddit_scan_configs`, `ignored_subreddits`, and `ignored_users` (changes take effect without restarting).
+- Useful env vars: `DATABASE_URL`, `POST_INITIAL_SCAN_DAYS`, `POST_RESCAN_DAYS`, `SKIP_RECENTLY_SCANNED_HOURS`.
 
-Configuration is primarily database-driven: the scanner reads `subreddit_scan_configs`, `ignored_subreddits`, and `ignored_users` from the DB and applies changes automatically.
+Scanner phases (short):
+- Startup: initialize and optionally prefetch metadata.
+- Load scan list: read active scan targets from DB.
+- Scan posts: fetch recent posts, apply filters, inspect comments.
+- Process posts: record new/edited comments and mentions; update `last_scanned`.
+- Metadata updates: fetch and refresh subreddit info.
+- Post rescan: rescan stored posts (never-scanned first, then oldest scans).
+- Idle: if no scan targets, keep metadata refreshed.
 
-## API (brief)
+API endpoints (examples):
 - `GET /subreddits` — list and filter subreddits
-- `GET /stats` — basic totals and last scan stats
+- `GET /stats` — counts and last-scan info
 
-## Frontend
-The static UI provides simple browsing and discovery views (Browse, Advanced, Discover, Analytics). Links open to Reddit.
-
-## Scanner Phases
-
-A brief, user-friendly overview of what the scanner does while running.
-
-- **Startup** — set up DB connectivity and check configured scan sources. Optionally fetch some subreddit metadata to warm the cache.
-- **Load scan list** — the scanner reads active scan targets from the database. Each target may restrict posts by author or NSFW flag.
-- **Scan posts** — for each target the scanner fetches recent posts, filters them by configuration (NSFW, allowed users, optional keywords), and inspects comments for subreddit mentions.
-- **Process posts** — new and edited comments are recorded; mentions are added unless they already exist. Posts get a `last_scanned` timestamp so the scanner knows when they were checked.
-- **Metadata updates** — newly discovered subreddits are looked up and basic metadata is saved. Older metadata is refreshed on a schedule.
-- **Post rescan** — the scanner can also rescan posts stored in the database; posts never-scanned are handled first, then older scans are checked before newer ones.
-- **Idle behavior** — if no scan targets are configured the scanner focuses on keeping subreddit metadata fresh.
-
-## Configuration (database-driven)
-Changes to which sources are scanned are done in the database and take effect without restarting services. There are three simple tables for this:
-
-1. `subreddit_scan_configs` — which sources to scan and how
-2. `ignored_subreddits` — subreddits to ignore when recording mentions
-3. `ignored_users` — users whose mentions should be ignored
-
-You can add or modify entries with simple `INSERT`/`UPDATE` SQL commands. Examples appear below in the original README if you need them.
+For CLI and SQL examples, migration details, and advanced setup, see the rest of this README below.
 
 ## Scanner Phases
 
