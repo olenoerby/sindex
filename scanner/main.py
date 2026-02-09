@@ -685,8 +685,8 @@ def fetch_subreddit_posts(subname: str, after: str = None):
     except Exception:
         pass
 
-    # Log response status and headers for debugging
-    logger.debug(f"fetch_subreddit_posts {entity_label}: status_code={r.status_code}, headers={dict(r.headers)}")
+    # Log only the requested URL for simpler debug output
+    logger.debug(f"fetch_subreddit_posts {entity_label}: url={url}")
     
     # Check for error status codes before raising
     if r.status_code == 429:
