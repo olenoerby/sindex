@@ -388,31 +388,71 @@ async function fetchTopBlocks(){
     const tc = await fetch(`/stats/top_commenters?limit=15&days=${currentDays}`);
     if(tc.ok){
       const data = await tc.json();
-      const dataKey = JSON.stringify(data);
+      const items = (data.items || []).slice(0,15);
+      const dataKey = JSON.stringify(items);
       if(cache.topBlocks.commenters !== dataKey) {
         cache.topBlocks.commenters = dataKey;
         const tbody = document.querySelector('#topCommentersTable tbody');
         tbody.innerHTML = '';
-        let topName = '—', topCount = '—';
-        let rowNum = 1;
-        (data.items || []).slice(0,15).forEach((row) => {
-          if(!row.user_id){ return; }
-          const label = row.user_id;
-          let userCell = '';
-          if(label.toLowerCase() === '[deleted]'){
-            userCell = '[deleted]';
+
+        const renderCount = (count) => {
+          tbody.innerHTML = '';
+          let rowNum = 1;
+          let topName = '—', topCount = '—';
+          items.slice(0, count).forEach((row) => {
+            if(!row.user_id){ return; }
+            const label = row.user_id;
+            let userCell = '';
+            if(label.toLowerCase() === '[deleted]'){
+              userCell = '[deleted]';
+            } else {
+              const href = `https://www.reddit.com/user/${encodeURIComponent(label)}`;
+              userCell = `<a href="${href}" target="_blank">${label}</a>`;
+            }
+            if(topName === '—'){ topName = label === '[deleted]' ? '[deleted]' : label; topCount = fmt(row.comments); }
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${rowNum}</td><td>${userCell}</td><td>${fmt(row.comments)}</td>`;
+            tbody.appendChild(tr);
+            rowNum++;
+          });
+          const first = items[0];
+          if(first && first.user_id){
+            const tn = first.user_id.toLowerCase() === '[deleted]' ? '[deleted]' : first.user_id;
+            document.getElementById('topCommenterName').textContent = tn;
+            document.getElementById('topCommenterCount').textContent = `${fmt(first.comments)} comments logged`;
           } else {
-            const href = `https://www.reddit.com/user/${encodeURIComponent(label)}`;
-            userCell = `<a href="${href}" target="_blank">${label}</a>`;
+            document.getElementById('topCommenterName').textContent = '—';
+            document.getElementById('topCommenterCount').textContent = '—';
           }
-          if(topName === '—'){ topName = label === '[deleted]' ? '[deleted]' : label; topCount = fmt(row.comments); }
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${rowNum}</td><td>${userCell}</td><td>${fmt(row.comments)}</td>`;
-          tbody.appendChild(tr);
-          rowNum++;
-        });
-        document.getElementById('topCommenterName').textContent = topName;
-        document.getElementById('topCommenterCount').textContent = `${topCount} comments logged`;
+        };
+
+        const defaultCount = Math.min(5, items.length);
+        const expandedCount = Math.min(15, items.length);
+        renderCount(defaultCount);
+
+        const existingBtn = document.getElementById('topCommentersTable-showmore');
+        if (existingBtn) existingBtn.remove();
+        if (items.length > defaultCount) {
+          const btn = document.createElement('button');
+          btn.id = 'topCommentersTable-showmore';
+          btn.className = 'show-more-btn';
+          btn.dataset.expanded = 'false';
+          btn.textContent = `Show more (${expandedCount})`;
+          btn.addEventListener('click', () => {
+            const expanded = btn.dataset.expanded === 'true';
+            if (!expanded) {
+              renderCount(expandedCount);
+              btn.textContent = 'Show less';
+              btn.dataset.expanded = 'true';
+            } else {
+              renderCount(defaultCount);
+              btn.textContent = `Show more (${expandedCount})`;
+              btn.dataset.expanded = 'false';
+            }
+          });
+          const table = document.getElementById('topCommentersTable');
+          table.insertAdjacentElement('afterend', btn);
+        }
       }
     }
 
@@ -420,18 +460,50 @@ async function fetchTopBlocks(){
     const tp = await fetch(`/stats/top_posts?limit=15&days=${currentDays}`);
     if(tp.ok){
       const data = await tp.json();
-      const dataKey = JSON.stringify(data);
+      const items = (data.items || []).slice(0,15);
+      const dataKey = JSON.stringify(items);
       if(cache.topBlocks.posts !== dataKey) {
         cache.topBlocks.posts = dataKey;
         const tbody = document.querySelector('#topPostsTable tbody');
-        tbody.innerHTML = '';
-        (data.items || []).slice(0,15).forEach((row, idx) => {
-          const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
-          const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.mentions)}</td>`;
-          tbody.appendChild(tr);
-        });
+
+        const renderCount = (count) => {
+          tbody.innerHTML = '';
+          items.slice(0, count).forEach((row, idx) => {
+            const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
+            const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.mentions)}</td>`;
+            tbody.appendChild(tr);
+          });
+        };
+
+        const defaultCount = Math.min(5, items.length);
+        const expandedCount = Math.min(15, items.length);
+        renderCount(defaultCount);
+
+        const existingBtn = document.getElementById('topPostsTable-showmore');
+        if (existingBtn) existingBtn.remove();
+        if (items.length > defaultCount) {
+          const btn = document.createElement('button');
+          btn.id = 'topPostsTable-showmore';
+          btn.className = 'show-more-btn';
+          btn.dataset.expanded = 'false';
+          btn.textContent = `Show more (${expandedCount})`;
+          btn.addEventListener('click', () => {
+            const expanded = btn.dataset.expanded === 'true';
+            if (!expanded) {
+              renderCount(expandedCount);
+              btn.textContent = 'Show less';
+              btn.dataset.expanded = 'true';
+            } else {
+              renderCount(defaultCount);
+              btn.textContent = `Show more (${expandedCount})`;
+              btn.dataset.expanded = 'false';
+            }
+          });
+          const table = document.getElementById('topPostsTable');
+          table.insertAdjacentElement('afterend', btn);
+        }
       }
     }
 
@@ -439,18 +511,50 @@ async function fetchTopBlocks(){
     const tu = await fetch(`/stats/top_unique_posts?limit=15&days=${currentDays}`);
     if(tu.ok){
       const data = await tu.json();
-      const dataKey = JSON.stringify(data);
+      const items = (data.items || []).slice(0,15);
+      const dataKey = JSON.stringify(items);
       if(cache.topBlocks.uniquePosts !== dataKey) {
         cache.topBlocks.uniquePosts = dataKey;
         const tbody = document.querySelector('#topUniquePostsTable tbody');
-        tbody.innerHTML = '';
-        (data.items || []).slice(0,15).forEach((row, idx) => {
-          const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
-          const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.unique_subreddits)}</td>`;
-          tbody.appendChild(tr);
-        });
+
+        const renderCount = (count) => {
+          tbody.innerHTML = '';
+          items.slice(0, count).forEach((row, idx) => {
+            const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
+            const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.unique_subreddits)}</td>`;
+            tbody.appendChild(tr);
+          });
+        };
+
+        const defaultCount = Math.min(5, items.length);
+        const expandedCount = Math.min(15, items.length);
+        renderCount(defaultCount);
+
+        const existingBtn = document.getElementById('topUniquePostsTable-showmore');
+        if (existingBtn) existingBtn.remove();
+        if (items.length > defaultCount) {
+          const btn = document.createElement('button');
+          btn.id = 'topUniquePostsTable-showmore';
+          btn.className = 'show-more-btn';
+          btn.dataset.expanded = 'false';
+          btn.textContent = `Show more (${expandedCount})`;
+          btn.addEventListener('click', () => {
+            const expanded = btn.dataset.expanded === 'true';
+            if (!expanded) {
+              renderCount(expandedCount);
+              btn.textContent = 'Show less';
+              btn.dataset.expanded = 'true';
+            } else {
+              renderCount(defaultCount);
+              btn.textContent = `Show more (${expandedCount})`;
+              btn.dataset.expanded = 'false';
+            }
+          });
+          const table = document.getElementById('topUniquePostsTable');
+          table.insertAdjacentElement('afterend', btn);
+        }
       }
     }
   } catch(err) {
