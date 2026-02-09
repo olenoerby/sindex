@@ -333,16 +333,54 @@ async function fetchTopBlocks(){
     const ts = await fetch(`/stats/top?limit=20&days=${currentDays}`);
     if(ts.ok){
       const data = await ts.json();
-      const dataKey = JSON.stringify(data.slice(0,15));
+      // Keep full set but only show 5 by default with a Show more button to expand to 15
+      const full = (data || []).slice(0, 15);
+      const dataKey = JSON.stringify(full);
       if(cache.topBlocks.subreddits !== dataKey) {
         cache.topBlocks.subreddits = dataKey;
         const tbody = document.querySelector('#topSubredditsTable tbody');
         tbody.innerHTML = '';
-        data.slice(0,15).forEach((row, idx) => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${idx+1}</td><td>/r/${row.name}</td><td>${fmt(row.mentions)}</td>`;
-          tbody.appendChild(tr);
-        });
+
+        const renderCount = (count) => {
+          tbody.innerHTML = '';
+          full.slice(0, count).forEach((row, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx+1}</td><td>/r/${row.name}</td><td>${fmt(row.mentions)}</td>`;
+            tbody.appendChild(tr);
+          });
+        };
+
+        // Default to 5 rows, expandable to 15
+        const defaultCount = Math.min(5, full.length);
+        const expandedCount = Math.min(15, full.length);
+        renderCount(defaultCount);
+
+        // Remove existing show-more if any
+        const existingBtn = document.getElementById('topSubredditsTable-showmore');
+        if (existingBtn) existingBtn.remove();
+
+        if (full.length > defaultCount) {
+          const btn = document.createElement('button');
+          btn.id = 'topSubredditsTable-showmore';
+          btn.className = 'show-more-btn';
+          btn.dataset.expanded = 'false';
+          btn.textContent = `Show more (${expandedCount})`;
+          btn.addEventListener('click', () => {
+            const expanded = btn.dataset.expanded === 'true';
+            if (!expanded) {
+              renderCount(expandedCount);
+              btn.textContent = 'Show less';
+              btn.dataset.expanded = 'true';
+            } else {
+              renderCount(defaultCount);
+              btn.textContent = `Show more (${expandedCount})`;
+              btn.dataset.expanded = 'false';
+            }
+          });
+          // Insert after the table
+          const table = document.getElementById('topSubredditsTable');
+          table.insertAdjacentElement('afterend', btn);
+        }
       }
     }
 
