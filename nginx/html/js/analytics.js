@@ -446,7 +446,13 @@ async function fetchTopBlocks(){
           const first = items[0];
           if(first && first.user_id){
             const tn = first.user_id.toLowerCase() === '[deleted]' ? '[deleted]' : first.user_id;
-            document.getElementById('topCommenterName').textContent = tn;
+            const nameEl = document.getElementById('topCommenterName');
+            if(tn === '[deleted]'){
+              nameEl.textContent = tn;
+            } else {
+              // Link to the mentions API filtered by user. Opens in a new tab.
+              nameEl.innerHTML = `<a href="/mentions?user=${encodeURIComponent(tn)}" target="_blank" rel="noopener noreferrer">${tn}</a>`;
+            }
             document.getElementById('topCommenterCount').textContent = `${fmt(first.comments)} comments logged`;
           } else {
             document.getElementById('topCommenterName').textContent = '—';
