@@ -65,8 +65,9 @@ function updateCardTitles(){
   document.getElementById('totalPostsTitle').textContent = `Total posts (${rangeText})`;
   document.getElementById('totalCommentsTitle').textContent = `Total comments (${rangeText})`;
   document.getElementById('peakMentionTitle').textContent = `Peak mention day (${rangeText})`;
-  document.getElementById('newSubsTitle').textContent = `New subs (${rangeText})`;
-  document.getElementById('newSubsDesc').textContent = `First-time mentions in the last ${currentDays >= 999999 ? 'all days' : currentDays + ' days'}.`;
+  // Update description under Total subreddits to reflect the selected window
+  const newSubsDescEl = document.getElementById('newSubsDesc');
+  if(newSubsDescEl) newSubsDescEl.textContent = `First-time mentions in the last ${currentDays >= 999999 ? 'all days' : currentDays + ' days'}.`;
   document.getElementById('topCommenterTitle').textContent = `Top commenter (${rangeText})`;
 }
 
