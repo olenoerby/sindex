@@ -2091,23 +2091,23 @@ def main_loop():
                         # Scan this target with its priority shown in phase
                         with temp_phase(f"Scan Targets (priority {priority})"):
                             while True:
-                            try:
-                                # Rate limiting applies globally across phases
-                                if distributed_rate_limiter:
-                                    distributed_rate_limiter.wait_if_needed()
-                                else:
-                                    rate_limiter.wait_if_needed()
-                                data = fetch_subreddit_posts(subname, after_sub)
-                            except Exception as e:
-                                error_str = str(e)
-                                error_type = type(e).__name__
-                                if '429' in error_str:
-                                    logger.warning(f"Rate limited on {entity_label}: {error_type}: {error_str} - retrying after wait")
-                                    continue
-                                else:
-                                    logger.warning(f"Exception fetching {entity_label} (type={error_type}): {error_str}")
-                                    logger.exception(f"Full traceback for {entity_label}")
-                                break
+                                try:
+                                    # Rate limiting applies globally across phases
+                                    if distributed_rate_limiter:
+                                        distributed_rate_limiter.wait_if_needed()
+                                    else:
+                                        rate_limiter.wait_if_needed()
+                                    data = fetch_subreddit_posts(subname, after_sub)
+                                except Exception as e:
+                                    error_str = str(e)
+                                    error_type = type(e).__name__
+                                    if '429' in error_str:
+                                        logger.warning(f"Rate limited on {entity_label}: {error_type}: {error_str} - retrying after wait")
+                                        continue
+                                    else:
+                                        logger.warning(f"Exception fetching {entity_label} (type={error_type}): {error_str}")
+                                        logger.exception(f"Full traceback for {entity_label}")
+                                    break
 
                             children = data.get('data', {}).get('children', [])
                             if not children:
