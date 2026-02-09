@@ -12,7 +12,5 @@
 			"ForEach-Object": true,
 			"&": true
 		}
-	},
-		"terminal.integrated.defaultProfile.windows": "PowerShell"
 	}
 }
