@@ -225,6 +225,43 @@ async function fetchMetadataStats(){
   }
 }
 
+async function fetchServiceHealth(){
+  try {
+    const res = await fetch('/health');
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const h = await res.json();
+
+    // API health
+    const apiOk = !!h['api-health'];
+    const apiEl = document.getElementById('svcApi');
+    const apiSub = document.getElementById('svcApiSub');
+    if(apiEl) apiEl.textContent = apiOk ? 'Healthy' : 'Unreachable';
+    if(apiSub) apiSub.textContent = apiOk ? 'API process responding' : (h.error || 'API error');
+
+    // DB health
+    const dbOk = !!h['db-health'];
+    const dbEl = document.getElementById('svcDb');
+    const dbSubEl = document.getElementById('svcDbSub');
+    if(dbEl) dbEl.textContent = dbOk ? 'Connected' : 'Disconnected';
+    if(dbSubEl) dbSubEl.textContent = dbOk ? 'Database reachable' : (h.error || 'DB error');
+
+    // Scanner health
+    const scannerOk = !!h['scanner-health'];
+    const scannerEl = document.getElementById('svcScanner');
+    const scannerSub = document.getElementById('svcScannerSub');
+    if(scannerEl) scannerEl.textContent = scannerOk ? 'Healthy' : 'Unhealthy';
+    if(scannerSub){
+      const last = h['scanner-last-scan-started'] || h['scanner_last_scan_started'] || '—';
+      scannerSub.textContent = `Last scan: ${last}`;
+    }
+  } catch(err) {
+    console.warn('service health fetch failed', err);
+    const apiEl = document.getElementById('svcApi'); if(apiEl) apiEl.textContent = 'Unreachable';
+    const dbEl = document.getElementById('svcDb'); if(dbEl) dbEl.textContent = 'Unknown';
+    const scannerEl = document.getElementById('svcScanner'); if(scannerEl) scannerEl.textContent = 'Unknown';
+  }
+}
+
 function ensureCharts(){
   if(!timelineChart){
     const ctx = document.getElementById('timelineChart').getContext('2d');
@@ -605,7 +642,12 @@ async function init() {
     fetchMetadataStats();
     fetchDaily(currentDays);
     fetchTopBlocks();
+    fetchServiceHealth();
   }, 30000);
 }
 
 initWithAgeGate(init);
+
+// Fetch service health immediately and periodically
+fetchServiceHealth();
+setInterval(fetchServiceHealth, 30000);
