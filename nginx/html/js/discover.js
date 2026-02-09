@@ -3,7 +3,7 @@
 let currentData = {
   trending: { days: 7, data: null },
   gems: { max_subscribers: 10000, data: null },
-  growing: { days: 30, min_recent: 3, min_growth: 1.1, data: null }
+  growing: { days: 60, min_recent: 3, min_growth: 1.1, data: null }
 };
 
 // Global NSFW/SFW filter for all sections: 'all' | 'nsfw' | 'sfw'
@@ -229,7 +229,7 @@ initWithAgeGate(() => {
   const mgBtn0 = document.querySelector('.toggle-group[data-name="min_growth"] .toggle-btn.active');
   const initialMinRecent = mrBtn0 ? parseInt(mrBtn0.dataset.value) : currentData.growing.min_recent;
   const initialMinGrowth = mgBtn0 ? parseFloat(mgBtn0.dataset.value) : currentData.growing.min_growth;
-  loadFastestGrowing(30, initialMinRecent, initialMinGrowth);
+  loadFastestGrowing(60, initialMinRecent, initialMinGrowth);
 
   // Toggle button handlers for fastest growing controls
   document.querySelectorAll('.toggle-group').forEach(group => {
