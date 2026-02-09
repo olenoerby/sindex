@@ -1,73 +1,80 @@
 # Pineapple Subreddit Index
 
-A read-only index of NSFW subreddit mentions. It watches a small set of Reddit sources (a user account and a few subreddits), parses public comments for referenced subreddit names, refreshes metadata from Reddit, and serves a searchable web UI/API. No posting, voting, or private data access.
+A simple, read-only index of NSFW subreddit mentions. The system watches a small set of Reddit sources (a user account and a few subreddits), finds mentions of other subreddits in public comments, keeps some basic subreddit info up to date, and provides a search UI and a read-only API. It does not post or access private data.
 
-## Features
-- Continuous scanning of target posts/subreddits for subreddit mentions
-- Mention aggregation with timestamps and de-duplication
-- Metadata refresh (title, subscribers, description, over18/banned/not_found) with retry scheduling on rate limits
-- Search/sort/filter UI (mentions, subscribers, first-seen windows, availability, NSFW flags)
-- Read-only FastAPI backend for the frontend
-- Dockerized: scanner, API, PostgreSQL, and static Nginx frontend
+## What it does (short)
+- Continuously watches configured Reddit sources for mentions of other subreddits.
+- Collects and deduplicates mentions with timestamps.
+- Keeps basic subreddit metadata (title, description, subscribers) reasonably fresh.
+- Serves a simple static UI and a read-only API for browsing results.
 
-## Architecture
-- **scanner/**: Python worker that fetches posts/comments, extracts subreddit mentions, stores mentions, and refreshes subreddit metadata on a schedule.
-- **api/**: FastAPI service exposing read-only endpoints (`/subreddits`, `/stats`, etc.).
-- **nginx/html/**: Static UI consuming the API.
-- **db**: PostgreSQL (docker-compose service) holding subreddits, mentions, posts, and analytics.
+## How it's organized
+- `scanner/` — worker that discovers and records mentions.
+- `api/` — read-only web service serving the UI and API.
+- `nginx/html/` — static frontend files.
+- `db` — PostgreSQL stores posts, comments, subreddits, and mentions.
 
-## Data Model (summary)
-- **posts**: reddit_post_id, title, created_utc, url
-- **comments**: reddit_comment_id, post_id, created_utc, user_id
-- **subreddits**: name, title, description, subscribers, active_users, created_utc, first_mentioned, last_checked, is_banned/not_found/over18
-- **mentions**: subreddit_id, comment_id, post_id, timestamp, source_subreddit_id, user_id (dedupe), unique constraints on (subreddit_id, comment_id) and (subreddit_id, user_id)
-- **analytics**: totals plus last_scan_started/duration/new_mentions
-
-## Scanner Behavior
-- Targets: specific user posts (e.g., /u/WeirdPineapple) and configured subreddits (e.g., wowthissubexists).
-- Parses comments for `/r/name` patterns (3–21 chars, strips invalid/banned patterns).
-- Inserts mentions if not already recorded; updates first_mentioned; schedules metadata refresh.
-- Respects low-rate usage (non-OAuth public endpoints) and handles 429 Retry-After.
-- Idle loop refreshes metadata for missing fields first, then stale (>24h), ordered by mention count.
-
-## Running Locally
+## Quick start (local)
 Prereqs: Docker and docker-compose.
 
 ```sh
 docker-compose build
 docker-compose up -d
 ```
-Services: `api`, `scanner`, `db`, `nginx` (static UI).
 
-### Environment
-Basic settings in `.env`:
-- `DATABASE_URL` (Postgres DSN)
-- `API_RATE_DELAY` (delay between Reddit API calls, default 7s)
-- `HTTP_REQUEST_TIMEOUT`, `SUBABOUT_CONCURRENCY`, etc.
-- `POST_INITIAL_SCAN_DAYS` (how far back to initially scan posts; older posts are skipped; empty = no limit)
-- `POST_RESCAN_DAYS` (how far back to re-check existing posts for new comments; 0 = no rescanning, empty = rescan all)
-- `SKIP_RECENTLY_SCANNED_HOURS` (skip posts scanned within X hours; useful for container restarts; 0 = disabled, default: 0)
-- `SCAN_SLEEP_SECONDS` (how many seconds to sleep between scan iterations; default: 300)
+This starts the `api`, `scanner`, `db`, and `nginx` services.
 
-**Scan configuration is now database-driven** (no .env editing needed):
-- Use the `subreddit_scan_configs`, `ignored_subreddits`, and `ignored_users` tables
-- Scanner reloads configuration automatically each scan cycle
-- See [Configuration](#configuration) section below
+### Important settings
+Most useful options are set via environment variables in `.env` or in your compose setup. Key ones:
+- `DATABASE_URL` — database connection string
+- `POST_INITIAL_SCAN_DAYS` — how far back to initially scan posts (empty = no limit)
+- `POST_RESCAN_DAYS` — how far back to rescan existing posts (empty = rescan all)
+- `SKIP_RECENTLY_SCANNED_HOURS` — skip posts scanned very recently
+
+Configuration is primarily database-driven: the scanner reads `subreddit_scan_configs`, `ignored_subreddits`, and `ignored_users` from the DB and applies changes automatically.
 
 ## API (brief)
-- `GET /subreddits` – paginated, filters (mentions/subscribers ranges, availability, NSFW), sorting.
-- `GET /stats` – totals plus last_scan_started/duration/new_mentions.
-- Additional params in code (`api/app.py`). All endpoints are read-only.
+- `GET /subreddits` — list and filter subreddits
+- `GET /stats` — basic totals and last scan stats
 
 ## Frontend
-- Static UI under `nginx/html/` with multiple views:
-  - **Browse** (`/browse`) - Simplified, mobile-friendly card view for casual browsing with basic filters
-  - **Advanced** (`/`) - Full-featured table view with comprehensive search, sort, filters (mentions, subscribers, first-mentioned presets, availability, NSFW/SFW), and pagination
-  - **Discover** (`/discover`) - Trending and notable subreddit collections
-  - **Analytics** (`/analytics`) - Statistics and charts showing platform metrics
-- Links open to Reddit (configurable listing target in Advanced view)
+The static UI provides simple browsing and discovery views (Browse, Advanced, Discover, Analytics). Links open to Reddit.
 
-## Configuration
+## Scanner Phases
+
+A brief, user-friendly overview of what the scanner does while running.
+
+- **Startup** — set up DB connectivity and check configured scan sources. Optionally fetch some subreddit metadata to warm the cache.
+- **Load scan list** — the scanner reads active scan targets from the database. Each target may restrict posts by author or NSFW flag.
+- **Scan posts** — for each target the scanner fetches recent posts, filters them by configuration (NSFW, allowed users, optional keywords), and inspects comments for subreddit mentions.
+- **Process posts** — new and edited comments are recorded; mentions are added unless they already exist. Posts get a `last_scanned` timestamp so the scanner knows when they were checked.
+- **Metadata updates** — newly discovered subreddits are looked up and basic metadata is saved. Older metadata is refreshed on a schedule.
+- **Post rescan** — the scanner can also rescan posts stored in the database; posts never-scanned are handled first, then older scans are checked before newer ones.
+- **Idle behavior** — if no scan targets are configured the scanner focuses on keeping subreddit metadata fresh.
+
+## Configuration (database-driven)
+Changes to which sources are scanned are done in the database and take effect without restarting services. There are three simple tables for this:
+
+1. `subreddit_scan_configs` — which sources to scan and how
+2. `ignored_subreddits` — subreddits to ignore when recording mentions
+3. `ignored_users` — users whose mentions should be ignored
+
+You can add or modify entries with simple `INSERT`/`UPDATE` SQL commands. Examples appear below in the original README if you need them.
+
+## Scanner Phases
+
+A concise overview of the scanner's runtime phases and ordering decisions.
+
+- **Startup**: initialize DB/tables, rate limiter, and perform an availability check for configured scan targets. Optionally run a short metadata prefetch to prioritise high-value subreddits.
+- **Load Scan Configs**: read `subreddit_scan_configs`, `ignored_subreddits`, and `ignored_users` from the DB; each scan config includes `priority`, `allowed_users`, `nsfw_only`, and optional `keywords`.
+- **Scan Targets**: iterate active scan configs ordered by `priority` (lower number = higher priority). For each target fetch recent posts (`fetch_subreddit_posts()`), apply `nsfw_only`, `allowed_users`, and per-config `keywords`, then pass posts to `process_post()`.
+- **Process Post (`process_post`)**: enforces `POST_INITIAL_SCAN_DAYS`, `POST_RESCAN_DAYS`, and `SKIP_RECENTLY_SCANNED_HOURS`; fetches comments, detects new/edited comments, inserts/updates `Post`/`Comment`/`Mention` rows, updates `post.unique_subreddits`, and sets `post.last_scanned`.
+- **Immediate Discovery Metadata**: when new subreddits are seen in comments, create `Subreddit` rows and update metadata immediately via `update_subreddit_metadata()` (rate-limited); `last_checked`, `next_retry_at`, and `retry_priority` are used for retry scheduling on 429s.
+- **Metadata Refresh Phase**: runs after scanning and processes subreddits in this order — 1) never-scanned (`last_checked IS NULL`), 2) missing metadata (NULL fields), 3) stale metadata (`last_checked` older than `METADATA_STALE_HOURS`), 4) re-check not-found subreddits every 7 days. Each refresh updates `last_checked`.
+- **Post Rescan Phase**: periodically rescan posts from the DB using `rescan_posts_phase()` (controlled by `POST_RESCAN_DURATION`). Posting order is `last_scanned IS NULL` first, then by `last_scanned` ascending (oldest first); posts are processed via `process_post()` so `last_scanned` is updated.
+- **Idle Mode**: if there are no active scan configs, the scanner runs the metadata refresh loop continuously instead of fetching posts.
+- **Rate Limiting & Retries**: all Reddit API access goes through `RateLimiter` or `DistributedRateLimiter`. On 429 responses the scanner schedules `next_retry_at` and increments `retry_priority` to give previously-rate-limited rows higher retry precedence.
+
 
 ### Database-Driven Scan Configuration
 The scanner uses database tables for configuration instead of `.env` variables. Changes take effect on the next scan cycle (no container restart needed).
