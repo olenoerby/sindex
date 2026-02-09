@@ -450,8 +450,8 @@ async function fetchTopBlocks(){
             if(tn === '[deleted]'){
               nameEl.textContent = tn;
             } else {
-              // Link to the user's Reddit submitted posts sorted by top. Opens in a new tab.
-              nameEl.innerHTML = `<a href="https://www.reddit.com/user/${encodeURIComponent(tn)}/submitted?sort=top" target="_blank" rel="noopener noreferrer">${tn}</a>`;
+              // Link to the user's Reddit comments page sorted by top. Opens in a new tab.
+              nameEl.innerHTML = `<a href="https://www.reddit.com/user/${encodeURIComponent(tn)}/comments?sort=top" target="_blank" rel="noopener noreferrer">${tn}</a>`;
             }
             document.getElementById('topCommenterCount').textContent = `${fmt(first.comments)} comments logged`;
           } else {
