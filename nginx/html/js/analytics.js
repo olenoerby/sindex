@@ -55,6 +55,7 @@ function initializeDateRange(){
   const displayText = currentDays >= 999999 ? 'Window: All time' : `Window: ${currentDays} days`;
   document.getElementById('window').textContent = displayText;
   updateCardTitles();
+  updateTableRangeIndicators();
 }
 
 // Update card titles to show the selected date range
@@ -70,6 +71,30 @@ function updateCardTitles(){
   document.getElementById('topCommenterTitle').textContent = `Top commenter (${rangeText})`;
 }
 
+// Update small subtitles for analytic tables to show active date range
+function updateTableRangeIndicators(){
+  const rangeText = currentDays >= 999999 ? 'All time' : `${currentDays}d`;
+  const tables = [
+    'topSubredditsTable',
+    'topCommentersTable',
+    'topPostsTable',
+    'topUniquePostsTable'
+  ];
+  tables.forEach(id => {
+    try{
+      const table = document.getElementById(id);
+      if(!table) return;
+      const card = table.closest('.card');
+      if(!card) return;
+      const small = card.querySelector('.row-title small');
+      if(!small) return;
+      if(!small.dataset.base) small.dataset.base = small.textContent || '';
+      const base = small.dataset.base;
+      small.textContent = base ? `${base} · ${rangeText}` : `${rangeText}`;
+    }catch(e){/* ignore */}
+  });
+}
+
 function bindControls(){
   buttons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -81,6 +106,7 @@ function bindControls(){
       const displayText = days >= 999999 ? 'Window: All time' : `Window: ${days} days`;
       document.getElementById('window').textContent = displayText;
       updateCardTitles();
+      updateTableRangeIndicators();
       setCookie('sindex_analytics_date_range', days, 365);
       // Clear cache for this date range to force refresh
       delete cache.daily[days];
