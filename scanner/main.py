@@ -124,6 +124,9 @@ SCAN_SLEEP_SECONDS = int(os.getenv('SCAN_SLEEP_SECONDS', '300'))
 # How many seconds to spend rescanning posts from the DB each iteration
 POST_RESCAN_DURATION = int(os.getenv('POST_RESCAN_DURATION', '300'))  # default: 5 minutes
 
+# Limit pages fetched per subreddit in a single scan iteration to avoid long-running scans
+MAX_PAGES_PER_SUBREDDIT = int(os.getenv('MAX_PAGES_PER_SUBREDDIT', '10'))
+
 # Number of days to consider subreddit metadata fresh before re-fetching from Reddit.
 # Can be set via `SUBREDDIT_META_CACHE_DAYS`; falls back to legacy `META_CACHE_DAYS` if present.
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
@@ -2089,6 +2092,7 @@ def main_loop():
                         subreddit_processed_count = 0
                         after_sub = None
                         prev_after_sub = None
+                        pages_fetched = 0
                         # Scan this target with its priority shown in phase
                         with temp_phase(f"Scan Targets (priority {priority})"):
                             while True:
@@ -2111,12 +2115,62 @@ def main_loop():
                                     current_after = data.get('data', {}).get('after')
                                     logger.info(f"Fetched {children_count} posts; after={current_after}")
                                     logger.debug(f"Paging state after fetch: prev_after={prev_after_sub}, current_after={current_after}")
-                                    # Update paging cursor immediately so next iteration uses it
+                                    # Guard: if cursor didn't advance, stop paging this subreddit
                                     if current_after == prev_after_sub:
                                         logger.warning(f"No progress paging {entity_label}; after cursor unchanged ({current_after}). Breaking to avoid loop.")
                                         break
+
+                                    # Update paging cursor for the next fetch
                                     prev_after_sub = current_after
                                     after_sub = current_after
+
+                                    # Track pages fetched and break if we hit the configured limit
+                                    pages_fetched += 1
+                                    if pages_fetched >= MAX_PAGES_PER_SUBREDDIT:
+                                        logger.info(f"Reached MAX_PAGES_PER_SUBREDDIT={MAX_PAGES_PER_SUBREDDIT} for {entity_label}; stopping further paging in this iteration.")
+                                        break
+
+                                    # Process this batch immediately instead of fetching all pages first
+                                    children = data.get('data', {}).get('children', [])
+                                    if not children:
+                                        # No posts in this batch -> done with this subreddit
+                                        break
+
+                                    if not prev_after_sub:
+                                        logger.info(f"Scanning new posts from {entity_label} (priority {priority})")
+
+                                    for p in children:
+                                        pdata = p.get('data', {})
+                                        if nsfw_only:
+                                            over18 = bool(pdata.get('over_18') or pdata.get('over18'))
+                                            if not over18:
+                                                continue
+                                        if allowed_users is not None:
+                                            author = (pdata.get('author') or '').strip().lower()
+                                            if author not in allowed_users:
+                                                continue
+
+                                        # Mark we're processing an individual post
+                                        with temp_phase('Process Post'):
+                                            processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
+                                        if processed:
+                                            subreddit_processed_count += 1
+                                        if discovered:
+                                            discovered_overall.update(discovered)
+                                        if TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT:
+                                            logger.info(f"Reached TEST_MAX_POSTS_PER_SUBREDDIT={TEST_MAX_POSTS_PER_SUBREDDIT} for {entity_label}, moving to next subreddit.")
+                                            break
+
+                                    # Stop paging if we've hit the test limit
+                                    if TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT:
+                                        break
+
+                                    # If there's no `after` cursor, we've reached the end
+                                    if not current_after:
+                                        break
+
+                                    # Otherwise, loop to fetch next page
+                                    continue
                                 except Exception as e:
                                     error_str = str(e)
                                     error_type = type(e).__name__
@@ -2127,38 +2181,6 @@ def main_loop():
                                         logger.warning(f"Exception fetching {entity_label} (type={error_type}): {error_str}")
                                         logger.exception(f"Full traceback for {entity_label}")
                                     break
-
-                            children = data.get('data', {}).get('children', [])
-                            if not children:
-                                break
-                            if not after_sub:
-                                logger.info(f"Scanning new posts from {entity_label} (priority {priority})")
-
-                            for p in children:
-                                pdata = p.get('data', {})
-                                if nsfw_only:
-                                    over18 = bool(pdata.get('over_18') or pdata.get('over18'))
-                                    if not over18:
-                                        continue
-                                if allowed_users is not None:
-                                    author = (pdata.get('author') or '').strip().lower()
-                                    if author not in allowed_users:
-                                        continue
-
-                                # Mark we're processing an individual post
-                                with temp_phase('Process Post'):
-                                    processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
-                                if processed:
-                                    subreddit_processed_count += 1
-                                if discovered:
-                                    discovered_overall.update(discovered)
-                                if TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT:
-                                    logger.info(f"Reached TEST_MAX_POSTS_PER_SUBREDDIT={TEST_MAX_POSTS_PER_SUBREDDIT} for {entity_label}, moving to next subreddit.")
-                                    break
-
-                            # after_sub already updated after fetch; break if no more pages
-                            if not after_sub or (TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT):
-                                break
 
                 # Phase 5: Immediate Metadata Discovery (fetch metadata for discovered subs)
                 if discovered_overall:
