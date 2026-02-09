@@ -110,7 +110,9 @@ function bindControls(){
       setCookie('sindex_analytics_date_range', days, 365);
       // Clear cache for this date range to force refresh
       delete cache.daily[days];
-      delete cache.topBlocks;
+      // Reset topBlocks cache object instead of deleting the property
+      // (deleting it causes later access to `cache.topBlocks.*` to throw)
+      cache.topBlocks = {};
       fetchStats();
       fetchDaily(days);
       fetchTopBlocks();
