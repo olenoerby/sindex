@@ -91,6 +91,9 @@ else:
 # How many seconds to sleep between scan iterations (after metadata refresh completes)
 SCAN_SLEEP_SECONDS = int(os.getenv('SCAN_SLEEP_SECONDS', '300'))
 
+# How many seconds to spend rescanning posts from the DB each iteration
+POST_RESCAN_DURATION = int(os.getenv('POST_RESCAN_DURATION', '300'))  # default: 5 minutes
+
 # Number of days to consider subreddit metadata fresh before re-fetching from Reddit.
 # Can be set via `SUBREDDIT_META_CACHE_DAYS`; falls back to legacy `META_CACHE_DAYS` if present.
 # Max retries for subreddit about fetches and per-request HTTP timeout (seconds)
@@ -1446,6 +1449,71 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     return (True, discovered)
 
 
+def rescan_posts_phase(duration_seconds):
+    """Rescan existing posts from the `post` table.
+
+    Ordering: prioritize posts with `last_scanned IS NULL` first, then by
+    `last_scanned` ascending (oldest first). Each selected post is passed to
+    `process_post` which will fetch comments and update `last_scanned`.
+    """
+    logger.info(f"=== Starting Post Rescan Phase ({duration_seconds} seconds) ===")
+    end_time = time.time() + float(duration_seconds or 0)
+    processed_count = 0
+
+    while time.time() < end_time:
+        with Session(engine) as session:
+            try:
+                # Build base query for posts. If POST_RESCAN_DAYS is set, only
+                # consider posts newer than that cutoff.
+                posts_q = session.query(models.Post)
+                if POST_RESCAN_DAYS is not None:
+                    try:
+                        cutoff_ts = int((datetime.utcnow() - timedelta(days=POST_RESCAN_DAYS)).timestamp())
+                        posts_q = posts_q.filter(models.Post.created_utc >= cutoff_ts)
+                    except Exception:
+                        pass
+
+                # Order so that never-scanned (last_scanned IS NULL) come first,
+                # then older last_scanned values before newer ones.
+                try:
+                    candidate = posts_q.order_by(models.Post.last_scanned.asc().nullsfirst()).first()
+                except Exception:
+                    candidate = posts_q.order_by(models.Post.last_scanned.asc()).first()
+
+                if not candidate:
+                    logger.info('No posts found to rescan. Post rescan phase complete.')
+                    break
+
+                # Prepare a minimal reddit-style post_item for process_post
+                post_item = {
+                    'data': {
+                        'id': candidate.reddit_post_id,
+                        'title': candidate.title,
+                        'created_utc': candidate.created_utc,
+                        'permalink': candidate.url,
+                        'author': candidate.original_poster
+                    }
+                }
+
+                # Load ignored lists so we can pass them through
+                _, ignored_subreddits, ignored_users = load_scan_config_from_db(session)
+
+                try:
+                    processed, discovered = process_post(post_item, session, source_subreddit_name=None, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
+                    if processed:
+                        processed_count += 1
+                except Exception as e:
+                    session.rollback()
+                    logger.exception(f'Error rescanning post {candidate.reddit_post_id}: {e}')
+
+            except Exception:
+                session.rollback()
+                logger.exception('Error selecting candidate post for rescan')
+
+    logger.info(f'Post rescan phase complete; processed {processed_count} posts')
+    return
+
+
 def update_subreddit_metadata(session: Session, sub: models.Subreddit):
     # Always attempt to refresh metadata when called. This scanner configuration
     # updates subreddit metadata immediately after discovery, so do not rely on
@@ -2065,9 +2133,16 @@ def main_loop():
                 # After scanning completes, run metadata refresh phase
                 logger.info(f'Scan complete. Starting metadata refresh phase for {METADATA_REFRESH_SECONDS} seconds...')
                 refresh_metadata_phase(METADATA_REFRESH_SECONDS)
-                
-                # After metadata refresh completes, sleep briefly before next scan
-                logger.info(f'Metadata refresh complete. Sleeping {SCAN_SLEEP_SECONDS} seconds before next scan iteration.')
+
+                # After metadata refresh completes, optionally rescan posts from DB
+                try:
+                    logger.info(f'Metadata refresh complete. Starting post rescan phase for {POST_RESCAN_DURATION} seconds...')
+                    rescan_posts_phase(POST_RESCAN_DURATION)
+                except Exception:
+                    logger.exception('Post rescan phase failed')
+
+                # After post rescan completes, sleep briefly before next scan
+                logger.info(f'Sleeping {SCAN_SLEEP_SECONDS} seconds before next scan iteration.')
                 time.sleep(SCAN_SLEEP_SECONDS)
             else:
                 # No scan configs found in database — operate in idle mode:
