@@ -401,18 +401,33 @@ function render(){
     }
     tr.appendChild(firstTd);
     const descTd = document.createElement('td'); descTd.classList.add('col-description','muted');
-    const descText = (s.description||'');
+    const descText = (s.description === null || s.description === undefined) ? '' : String(s.description);
+    const publicDescHtml = (s.public_description_html === null || s.public_description_html === undefined) ? '' : String(s.public_description_html);
+    const hasDescription = (publicDescHtml && publicDescHtml.trim().length > 0) || (descText && descText.trim().length > 0);
+    const isScanned = (s.last_checked !== null && s.last_checked !== undefined);
+
     if(isUnprocessed){
       descTd.textContent = '—';
     } else {
+      // Determine if subreddit was scanned but has no description text
+      const isNoDescription = isScanned && !hasDescription;
       // Always render a button that opens the description modal so users
       // can view the full description regardless of its length.
       const btn = document.createElement('button');
       btn.className = 'btn btn-ghost';
-      if(descText && descText.length > 32) btn.textContent = descText.slice(0,32) + '...';
-      else btn.textContent = descText || '—';
+      if(isNoDescription){
+        btn.textContent = 'No description';
+      } else if((publicDescHtml || descText) && (publicDescHtml || descText).length > 32){
+        btn.textContent = (publicDescHtml || descText).slice(0,32) + '...';
+      } else {
+        btn.textContent = (publicDescHtml || descText) || '—';
+      }
       btn.addEventListener('click', ()=>{
-        openDescriptionModal(s.public_description_html || s.description || '', s.last_checked);
+        if(isNoDescription){
+          openDescriptionModal('This subreddit does not have a descriptive text', s.last_checked);
+        } else {
+          openDescriptionModal(publicDescHtml || descText || '', s.last_checked);
+        }
       });
       descTd.appendChild(btn);
     }
