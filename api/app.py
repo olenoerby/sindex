@@ -522,6 +522,18 @@ def list_subreddits(
         # Handle pending filter
         # When show_pending=True and availability filters are disabled, show only available pending subreddits
         # When show_pending=False, exclude pending subreddits
+        # Compute pending matches when a text query is present and pending results would be excluded
+        pending_matches = 0
+        try:
+            if q and (show_pending is False or show_pending is None):
+                try:
+                    pending_q = subq.filter(models.Subreddit.title == None)
+                    pending_subq = pending_q.with_labels().subquery()
+                    pending_matches = int(session.query(func.count()).select_from(pending_subq).scalar() or 0)
+                except Exception:
+                    pending_matches = 0
+        except Exception:
+            pending_matches = 0
         if show_pending is True and show_available is False and show_banned is False:
             # Only available pending subreddits (not banned/not found, and title is None/NULL)
             try:
@@ -637,7 +649,14 @@ def list_subreddits(
             ).dict())
 
         has_more = (offset + len(items)) < total
-        return {"items": items, "total": total, "page": page, "per_page": per_page, "has_more": has_more, "db_total": db_total}
+        resp = {"items": items, "total": total, "page": page, "per_page": per_page, "has_more": has_more, "db_total": db_total}
+        # Include pending match count when applicable so the frontend can indicate hidden results
+        try:
+            if pending_matches and pending_matches > 0:
+                resp['pending_matches'] = int(pending_matches)
+        except Exception:
+            pass
+        return resp
 
 
 @app.get("/health")

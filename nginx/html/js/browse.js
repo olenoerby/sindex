@@ -185,9 +185,12 @@ async function loadSubreddits() {
     // Update results info
     const start = (currentPage - 1) * perPage + 1;
     const end = Math.min(currentPage * perPage, totalResults);
-    resultsInfo.innerHTML = `
-      Showing <strong>${start}-${end}</strong> of <strong>${formatNumber(totalResults)}</strong> subreddits
-    `;
+    let resultsHtml = `Showing <strong>${start}-${end}</strong> of <strong>${formatNumber(totalResults)}</strong> subreddits`;
+    // If the API indicates there are pending/hidden matches (e.g. metadata not yet fetched), show a note
+    if (typeof data.pending_matches !== 'undefined' && Number(data.pending_matches) > 0) {
+      resultsHtml += ` <span class="muted">(${formatNumber(Number(data.pending_matches))} not yet updated)</span>`;
+    }
+    resultsInfo.innerHTML = resultsHtml;
 
     // Clear grid and render cards
     subredditGrid.innerHTML = '';
