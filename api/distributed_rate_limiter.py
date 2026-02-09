@@ -6,8 +6,17 @@ This ensures the global API limit is respected regardless of which container mak
 import time
 import logging
 from redis import Redis
+from api.phase import attach_phase_filter, temp_phase
 
 logger = logging.getLogger(__name__)
+
+# Ensure console handler includes phase information when module is imported directly
+if not logger.handlers:
+    h = logging.StreamHandler()
+    fmt = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
+    h.setFormatter(fmt)
+    attach_phase_filter(h)
+    logger.addHandler(h)
 
 # Redis keys for distributed rate limiting
 REDIS_KEY_LAST_API_CALL = "pineapple:api:last_call_timestamp"
@@ -67,30 +76,33 @@ class DistributedRateLimiter:
                 
                 if elapsed < self.min_delay_seconds:
                     sleep_duration = self.min_delay_seconds - elapsed
-                    logger.info(f"Rate limit: sleeping {sleep_duration:.2f}s (min delay)")
-                    time.sleep(sleep_duration)
-                    current_time = time.time()
+                        with temp_phase('Rate Limiting + Retries'):
+                            logger.info(f"Rate limit: sleeping {sleep_duration:.2f}s (min delay)")
+                            time.sleep(sleep_duration)
+                            current_time = time.time()
             
             # Check calls per minute limit
             call_count_str = self.redis_client.get(REDIS_KEY_API_CALL_COUNT)
             call_count = int(call_count_str) if call_count_str else 0
             
             if call_count >= self.max_calls_per_minute:
-                logger.warning(f"Reached {self.max_calls_per_minute} calls/minute limit")
-                # Sleep and reset counter (conservative approach: wait the full min delay)
-                sleep_duration_extra = self.min_delay_seconds
-                logger.info(f"Sleeping {sleep_duration_extra}s due to per-minute limit")
-                time.sleep(sleep_duration_extra)
-                sleep_duration += sleep_duration_extra
-                current_time = time.time()
-                # Reset counter (will be incremented after call succeeds)
-                self.redis_client.delete(REDIS_KEY_API_CALL_COUNT)
+                with temp_phase('Rate Limiting + Retries'):
+                    logger.warning(f"Reached {self.max_calls_per_minute} calls/minute limit")
+                    # Sleep and reset counter (conservative approach: wait the full min delay)
+                    sleep_duration_extra = self.min_delay_seconds
+                    logger.info(f"Sleeping {sleep_duration_extra}s due to per-minute limit")
+                    time.sleep(sleep_duration_extra)
+                    sleep_duration += sleep_duration_extra
+                    current_time = time.time()
+                    # Reset counter (will be incremented after call succeeds)
+                    self.redis_client.delete(REDIS_KEY_API_CALL_COUNT)
             
         except Exception as e:
             logger.error(f"Distributed rate limiter error: {e}")
             # Fall back to local delay if Redis fails
-            time.sleep(self.min_delay_seconds)
-            sleep_duration += self.min_delay_seconds
+            with temp_phase('Rate Limiting + Retries'):
+                time.sleep(self.min_delay_seconds)
+                sleep_duration += self.min_delay_seconds
         
         return sleep_duration
     

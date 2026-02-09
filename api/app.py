@@ -8,6 +8,7 @@ import json
 import hashlib
 from functools import wraps
 from api.distributed_rate_limiter import DistributedRateLimiter
+from api.phase import attach_phase_filter, temp_phase
 
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request, Header
@@ -21,10 +22,11 @@ from . import models
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 api_logger = logging.getLogger('api')
 api_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-fmt = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
+fmt = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
 fmt.converter = time.gmtime  # Use UTC instead of local time
 sh = logging.StreamHandler()
 sh.setFormatter(fmt)
+attach_phase_filter(sh)
 api_logger.addHandler(sh)
 
 # Configuration and DB
@@ -143,7 +145,8 @@ def fetch_sub_about(name: str):
             distributed_rate_limiter.wait_if_needed()
         else:
             import time as _time
-            _time.sleep(API_RATE_DELAY)
+            with temp_phase('Rate Limiting + Retries'):
+                _time.sleep(API_RATE_DELAY)
     except Exception:
         pass
 

@@ -11,12 +11,14 @@ import logging
 from redis import Redis
 from api.tasks import refresh_subreddit_job
 from api.distributed_rate_limiter import DistributedRateLimiter
+from api.phase import attach_phase_filter, temp_phase
 
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logger = logging.getLogger('metadata_worker')
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ'))
+handler.setFormatter(logging.Formatter('%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ'))
+attach_phase_filter(handler)
 logger.addHandler(handler)
 logger.propagate = False
 
@@ -43,12 +45,13 @@ except Exception as e:
 
 def main():
     """Consume from metadata_refresh_queue and process tasks."""
-    logger.info(f"=== Metadata Worker Starting ===")
-    logger.info(f"Redis URL: {REDIS_URL}")
-    logger.info(f"Queue: {QUEUE_NAME}")
-    logger.info(f"Log level: {LOG_LEVEL}")
-    logger.info(f"Rate limiting: {API_RATE_DELAY_SECONDS}s min delay, {API_MAX_CALLS_MINUTE} calls/min (SHARED with scanner)")
-    logger.debug(f"Poll interval: {POLL_INTERVAL}s")
+    with temp_phase('Startup'):
+        logger.info(f"=== Metadata Worker Starting ===")
+        logger.info(f"Redis URL: {REDIS_URL}")
+        logger.info(f"Queue: {QUEUE_NAME}")
+        logger.info(f"Log level: {LOG_LEVEL}")
+        logger.info(f"Rate limiting: {API_RATE_DELAY_SECONDS}s min delay, {API_MAX_CALLS_MINUTE} calls/min (SHARED with scanner)")
+        logger.debug(f"Poll interval: {POLL_INTERVAL}s")
     
     try:
         redis_client = Redis.from_url(REDIS_URL)
@@ -79,30 +82,32 @@ def main():
                 
                 # CRITICAL: Use distributed rate limiter to coordinate with scanner
                 # This blocks if needed to maintain the global API rate limit
-                logger.debug("Checking distributed rate limit...")
-                sleep_duration = global_rate_limiter.wait_if_needed()
-                if sleep_duration > 0:
-                    logger.info(f"Rate limit enforcement: slept {sleep_duration:.2f}s")
-                
-                logger.info(f"Processing metadata refresh for /r/{subreddit_name}")
-                try:
-                    refresh_subreddit_job(subreddit_name)
-                    # Record this API call to the global rate limiter
-                    global_rate_limiter.record_api_call()
-                    processed_count += 1
-                    logger.info(f"✓ Completed metadata refresh for /r/{subreddit_name} (total processed: {processed_count})")
-                except Exception as e:
-                    # Record the call even on error (API call was made)
-                    global_rate_limiter.record_api_call()
-                    error_count += 1
-                    logger.error(f"✗ Error refreshing metadata for /r/{subreddit_name}: {e}")
-                    logger.debug(f"Total errors: {error_count}")
-                    # Re-queue on error (exponential backoff could be added)
+                with temp_phase('Rate Limiting + Retries'):
+                    logger.debug("Checking distributed rate limit...")
+                    sleep_duration = global_rate_limiter.wait_if_needed()
+                    if sleep_duration > 0:
+                        logger.info(f"Rate limit enforcement: slept {sleep_duration:.2f}s")
+
+                with temp_phase('Immediate Discovery Metadata'):
+                    logger.info(f"Processing metadata refresh for /r/{subreddit_name}")
                     try:
-                        redis_client.rpush(QUEUE_NAME, subreddit_name)
-                        logger.warning(f"Re-queued /r/{subreddit_name} for retry")
-                    except Exception as e2:
-                        logger.error(f"Failed to re-queue /r/{subreddit_name}: {e2}")
+                        refresh_subreddit_job(subreddit_name)
+                        # Record this API call to the global rate limiter
+                        global_rate_limiter.record_api_call()
+                        processed_count += 1
+                        logger.info(f"✓ Completed metadata refresh for /r/{subreddit_name} (total processed: {processed_count})")
+                    except Exception as e:
+                        # Record the call even on error (API call was made)
+                        global_rate_limiter.record_api_call()
+                        error_count += 1
+                        logger.error(f"✗ Error refreshing metadata for /r/{subreddit_name}: {e}")
+                        logger.debug(f"Total errors: {error_count}")
+                        # Re-queue on error (exponential backoff could be added)
+                        try:
+                            redis_client.rpush(QUEUE_NAME, subreddit_name)
+                            logger.warning(f"Re-queued /r/{subreddit_name} for retry")
+                        except Exception as e2:
+                            logger.error(f"Failed to re-queue /r/{subreddit_name}: {e2}")
             else:
                 logger.debug("No tasks available in queue (timeout reached)")
         except KeyboardInterrupt:

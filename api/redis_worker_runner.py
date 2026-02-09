@@ -8,6 +8,7 @@ import sys
 import logging
 from rq import Worker
 from redis import Redis
+from api.phase import attach_phase_filter, temp_phase
 
 # Setup logging based on LOG_LEVEL environment variable
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -17,10 +18,11 @@ logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 # Configure handler with ISO 8601 UTC timestamps
 handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter(
-    '%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+    '%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s',
     datefmt='%Y-%m-%dT%H:%M:%SZ'
 )
 handler.setFormatter(formatter)
+attach_phase_filter(handler)
 logger.addHandler(handler)
 logger.propagate = False
 
@@ -36,8 +38,9 @@ root_logger.addHandler(handler)
 
 def main():
     """Start RQ worker with proper logging."""
-    logger.info("=== RQ Worker Starting ===")
-    logger.info(f"Log level: {LOG_LEVEL}")
+    with temp_phase('Startup'):
+        logger.info("=== RQ Worker Starting ===")
+        logger.info(f"Log level: {LOG_LEVEL}")
     
     redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
     logger.info(f"Redis URL: {redis_url}")
@@ -51,8 +54,9 @@ def main():
         sys.exit(1)
     
     # Start the worker
-    logger.info("Starting worker on 'default' queue...")
-    logger.debug("Worker will process jobs from Redis queue")
+    with temp_phase('Idle Mode'):
+        logger.info("Starting worker on 'default' queue...")
+        logger.debug("Worker will process jobs from Redis queue")
     
     try:
         worker = Worker(['default'], connection=redis_conn)

@@ -6,6 +6,7 @@ import logging
 from dotenv import load_dotenv
 # file-based rotating logs removed; rely on container stdout/stderr
 from datetime import datetime, timedelta
+from contextlib import contextmanager
 import httpx
 from sqlalchemy import create_engine, text, func
 from sqlalchemy.orm import Session
@@ -38,11 +39,40 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logger = logging.getLogger('scanner')
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 # Use stdout/stderr (container logs) with ISO 8601 timestamp format (UTC)
-formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
+# Inject a dynamic `phase` field into every log record so console output
+# shows which phase the scanner is currently in.
+formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
 formatter.converter = time.gmtime  # Use UTC instead of local time
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
+CURRENT_PHASE = 'Startup'
+
+
+class PhaseFilter(logging.Filter):
+    def filter(self, record):
+        # Ensure every record has a `phase` attribute for the formatter.
+        try:
+            record.phase = CURRENT_PHASE
+        except Exception:
+            record.phase = 'unknown'
+        return True
+
+
+@contextmanager
+def temp_phase(name: str):
+    """Temporarily set `CURRENT_PHASE` for the duration of the context."""
+    global CURRENT_PHASE
+    prev = CURRENT_PHASE
+    CURRENT_PHASE = name
+    logger.info(f"=== PHASE: {name} ===")
+    try:
+        yield
+    finally:
+        CURRENT_PHASE = prev
+        logger.info(f"=== PHASE: {prev} ===")
+
 if not logger.handlers:
+    stream_handler.addFilter(PhaseFilter())
     logger.addHandler(stream_handler)
 logger.propagate = False
 
@@ -156,9 +186,10 @@ class RateLimiter:
                 time_since_last = now - self.last_call_time
                 if time_since_last < self.min_delay:
                     sleep_time = self.min_delay - time_since_last
-                    logger.info(f"Enforcing min API delay: {time_since_last:.2f}s elapsed, sleeping {sleep_time:.2f}s more (total min: {self.min_delay}s)")
-                    time.sleep(sleep_time)
-                    now = time.time()
+                    with temp_phase('Rate Limiting + Retries'):
+                        logger.info(f"Enforcing min API delay: {time_since_last:.2f}s elapsed, sleeping {sleep_time:.2f}s more (total min: {self.min_delay}s)")
+                        time.sleep(sleep_time)
+                        now = time.time()
             
             # Remove calls older than 60 seconds (rolling window)
             self.call_times = [t for t in self.call_times if now - t < 60.0]
@@ -169,11 +200,12 @@ class RateLimiter:
                 # Must wait until the oldest call expires from the window
                 oldest_time = self.call_times[0]
                 sleep_time = 60.0 - (now - oldest_time) + 0.1  # +0.1s buffer
-                logger.info(f"Rate limit: {current_count}/{self.max_calls} calls in last 60s, waiting {sleep_time:.1f}s")
-                time.sleep(sleep_time)
-                # Re-clean the window after waiting
-                now = time.time()
-                self.call_times = [t for t in self.call_times if now - t < 60.0]
+                with temp_phase('Rate Limiting + Retries'):
+                    logger.info(f"Rate limit: {current_count}/{self.max_calls} calls in last 60s, waiting {sleep_time:.1f}s")
+                    time.sleep(sleep_time)
+                    # Re-clean the window after waiting
+                    now = time.time()
+                    self.call_times = [t for t in self.call_times if now - t < 60.0]
             
             # Record this API call
             self.call_times.append(now)
@@ -1990,10 +2022,11 @@ def check_scan_subreddits_availability():
 
 def main_loop():
     logger.info("main_loop() called")
-    wait_for_db_startup()
-    logger.info("wait_for_db_startup() complete")
-    ensure_tables()
-    logger.info("ensure_tables() complete")
+    with temp_phase('Startup'):
+        wait_for_db_startup()
+        logger.info("wait_for_db_startup() complete")
+        ensure_tables()
+        logger.info("ensure_tables() complete")
     # Phase 1: Startup (DB, rate limiter, initial configs, optional prefetch)
     logger.info("Initializing rate limiter and loading initial scan configs")
     try:
@@ -2021,8 +2054,9 @@ def main_loop():
         mentions_before = 0
         try:
             # Phase 2 (repeated each iteration): Load Scan Configs
-            with Session(engine) as session:
-                scan_configs, ignored_subreddits, ignored_users = load_scan_config_from_db(session)
+            with temp_phase('Load Subreddit Scan Configs'):
+                with Session(engine) as session:
+                    scan_configs, ignored_subreddits, ignored_users = load_scan_config_from_db(session)
 
             # Phase 3: Primary Scan Loop (Scan Targets)
             if scan_configs:
@@ -2054,7 +2088,9 @@ def main_loop():
 
                         subreddit_processed_count = 0
                         after_sub = None
-                        while True:
+                        # Scan this target with its priority shown in phase
+                        with temp_phase(f"Scan Targets (priority {priority})"):
+                            while True:
                             try:
                                 # Rate limiting applies globally across phases
                                 if distributed_rate_limiter:
@@ -2090,7 +2126,9 @@ def main_loop():
                                     if author not in allowed_users:
                                         continue
 
-                                processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
+                                # Mark we're processing an individual post
+                                with temp_phase('Process Post'):
+                                    processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
                                 if processed:
                                     subreddit_processed_count += 1
                                 if discovered:
@@ -2105,36 +2143,39 @@ def main_loop():
 
                 # Phase 5: Immediate Metadata Discovery (fetch metadata for discovered subs)
                 if discovered_overall:
-                    logger.info(f"Discovered {len(discovered_overall)} new subreddits during scan")
-                    for sname in discovered_overall:
-                        with Session(engine) as meta_session:
-                            sub = meta_session.query(models.Subreddit).filter(models.Subreddit.name == sname.lower()).first()
-                            if sub:
-                                if distributed_rate_limiter:
-                                    distributed_rate_limiter.wait_if_needed()
-                                else:
-                                    rate_limiter.wait_if_needed()
-                                update_subreddit_metadata(meta_session, sub)
-                                try:
+                    with temp_phase('Immediate Discovery Metadata'):
+                        logger.info(f"Discovered {len(discovered_overall)} new subreddits during scan")
+                        for sname in discovered_overall:
+                            with Session(engine) as meta_session:
+                                sub = meta_session.query(models.Subreddit).filter(models.Subreddit.name == sname.lower()).first()
+                                if sub:
                                     if distributed_rate_limiter:
-                                        distributed_rate_limiter.record_api_call()
+                                        distributed_rate_limiter.wait_if_needed()
                                     else:
-                                        rate_limiter.record_call()
-                                except Exception:
-                                    pass
-                                try:
-                                    meta_session.commit()
-                                except Exception:
-                                    meta_session.rollback()
+                                        rate_limiter.wait_if_needed()
+                                    update_subreddit_metadata(meta_session, sub)
+                                    try:
+                                        if distributed_rate_limiter:
+                                            distributed_rate_limiter.record_api_call()
+                                        else:
+                                            rate_limiter.record_call()
+                                    except Exception:
+                                        pass
+                                    try:
+                                        meta_session.commit()
+                                    except Exception:
+                                        meta_session.rollback()
 
                 # Phase 6: Metadata Refresh Phase
-                logger.info(f'Scan complete. Starting metadata refresh phase for {METADATA_REFRESH_SECONDS} seconds...')
-                refresh_metadata_phase(METADATA_REFRESH_SECONDS)
+                with temp_phase('Metadata Refresh Phase'):
+                    logger.info(f'Scan complete. Starting metadata refresh phase for {METADATA_REFRESH_SECONDS} seconds...')
+                    refresh_metadata_phase(METADATA_REFRESH_SECONDS)
 
                 # Phase 7: Post Rescan Phase
                 try:
-                    logger.info(f'Metadata refresh complete. Starting post rescan phase for {POST_RESCAN_DURATION} seconds...')
-                    rescan_posts_phase(POST_RESCAN_DURATION)
+                    with temp_phase('Post Rescan Phase'):
+                        logger.info(f'Metadata refresh complete. Starting post rescan phase for {POST_RESCAN_DURATION} seconds...')
+                        rescan_posts_phase(POST_RESCAN_DURATION)
                 except Exception:
                     logger.exception('Post rescan phase failed')
 
@@ -2153,10 +2194,11 @@ def main_loop():
                 time.sleep(SCAN_SLEEP_SECONDS)
             else:
                 # Phase 8: Idle Mode - continuous metadata refresh when no scan configs
-                logger.warning('No subreddit scan configs found in database. Running continuous metadata refresh.')
-                refresh_metadata_phase(METADATA_REFRESH_SECONDS)
-                logger.info('Idle metadata refresh complete. Sleeping 10 minutes before checking for scan configs again.')
-                time.sleep(600)
+                with temp_phase('Idle Mode'):
+                    logger.warning('No subreddit scan configs found in database. Running continuous metadata refresh.')
+                    refresh_metadata_phase(METADATA_REFRESH_SECONDS)
+                    logger.info('Idle metadata refresh complete. Sleeping 10 minutes before checking for scan configs again.')
+                    time.sleep(600)
         except Exception as e:
             logger.exception(f"Scanner main loop error: {e}")
             time.sleep(60)

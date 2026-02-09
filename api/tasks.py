@@ -8,6 +8,7 @@ from .utils import parse_retry_after_seconds
 from sqlalchemy import create_engine
 from redis import Redis
 from api.distributed_rate_limiter import DistributedRateLimiter
+from api.phase import attach_phase_filter, temp_phase
 
 # Initialize distributed rate limiter (best-effort)
 try:
@@ -23,7 +24,8 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logger = logging.getLogger('api.tasks')
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s [%(phase)s]: %(message)s'))
+attach_phase_filter(handler)
 logger.addHandler(handler)
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple')
@@ -49,7 +51,8 @@ def refresh_subreddit_job(name: str):
         logger.info(f"Skipping background refresh for user profile: /u/{lname[2:]}")
         return
     try:
-        with Session(engine) as session:
+        with temp_phase('Immediate Discovery Metadata'):
+            with Session(engine) as session:
             sub = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
             if not sub:
                 sub = models.Subreddit(name=lname)
