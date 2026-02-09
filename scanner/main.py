@@ -2093,11 +2093,14 @@ def main_loop():
                             while True:
                                 try:
                                     # Rate limiting applies globally across phases
+                                    logger.info(f"Preparing to fetch posts for {entity_label} (after={after_sub})")
                                     if distributed_rate_limiter:
                                         distributed_rate_limiter.wait_if_needed()
                                     else:
                                         rate_limiter.wait_if_needed()
+                                    logger.info(f"Calling Reddit to fetch posts for {entity_label}")
                                     data = fetch_subreddit_posts(subname, after_sub)
+                                    logger.info(f"Fetch complete for {entity_label}")
                                 except Exception as e:
                                     error_str = str(e)
                                     error_type = type(e).__name__
