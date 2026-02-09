@@ -464,8 +464,10 @@ async function fetchTopBlocks(){
               userCell = `<a href="${href}" target="_blank">${label}</a>`;
             }
             if(topName === '—'){ topName = label === '[deleted]' ? '[deleted]' : label; topCount = fmt(row.comments); }
+            // Prefer explicit comment counts; fall back to mentions if present for older payloads
+            const commentCount = (row.comments ?? row.mentions ?? row.count ?? 0);
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${rowNum}</td><td>${userCell}</td><td>${fmt(row.comments)}</td>`;
+            tr.innerHTML = `<td>${rowNum}</td><td>${userCell}</td><td>${fmt(commentCount)}</td>`;
             tbody.appendChild(tr);
             rowNum++;
           });
@@ -479,7 +481,8 @@ async function fetchTopBlocks(){
               // Link to the user's Reddit comments page sorted by top. Opens in a new tab.
               nameEl.innerHTML = `<a href="https://www.reddit.com/user/${encodeURIComponent(tn)}/comments?sort=top" target="_blank" rel="noopener noreferrer">${tn}</a>`;
             }
-            document.getElementById('topCommenterCount').textContent = `${fmt(first.comments)} comments logged`;
+            const topCount = (first.comments ?? first.mentions ?? first.count ?? 0);
+            document.getElementById('topCommenterCount').textContent = `${fmt(topCount)} comments logged`;
           } else {
             document.getElementById('topCommenterName').textContent = '—';
             document.getElementById('topCommenterCount').textContent = '—';
