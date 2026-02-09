@@ -1,8 +1,7 @@
 // Analytics page (analytics.html) - Charts and statistics functionality
 
 const buttons = Array.from(document.querySelectorAll('.controls .btn'));
-const refreshBtn = document.getElementById('refreshBtn');
-let currentDays = 30;
+let currentDays = 90;
 let timelineChart, subsChart;
 const textColor = '#d9e4f5';
 
@@ -37,8 +36,8 @@ function initializeDateRange(){
   if(savedDays && !isNaN(savedDays)){
     currentDays = Number(savedDays);
   } else {
-    currentDays = 30;
-    setCookie('sindex_analytics_date_range', 30, 365);
+    currentDays = 90;
+    setCookie('sindex_analytics_date_range', 90, 365);
   }
   
   // Update button states based on currentDays
@@ -119,18 +118,7 @@ function bindControls(){
     });
   });
   
-  // Bind refresh button
-  const refreshBtn = document.getElementById('refreshBtn');
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => {
-      refreshBtn.classList.add('refreshing');
-      fetchStats();
-      fetchMetadataStats();
-      fetchDaily(currentDays);
-      fetchTopBlocks();
-      setTimeout(() => refreshBtn.classList.remove('refreshing'), 1000);
-    });
-  }
+  // No manual refresh button on analytics page; auto-refresh runs instead
 }
 
 async function fetchStats(){
