@@ -2094,6 +2094,7 @@ def main_loop():
                             while True:
                                 try:
                                     # Rate limiting applies globally across phases
+                                    logger.debug(f"Paging state before fetch: prev_after={prev_after_sub}, after_sub={after_sub}")
                                     logger.info(f"Preparing to fetch posts for {entity_label} (after={after_sub})")
                                     if distributed_rate_limiter:
                                         distributed_rate_limiter.wait_if_needed()
@@ -2108,7 +2109,8 @@ def main_loop():
                                     except Exception:
                                         children_count = 'unknown'
                                         current_after = data.get('data', {}).get('after')
-                                        logger.info(f"Fetched {children_count} posts; after={current_after}")
+                                    logger.info(f"Fetched {children_count} posts; after={current_after}")
+                                    logger.debug(f"Paging state after fetch: prev_after={prev_after_sub}, current_after={current_after}")
                                         # Update paging cursor immediately so next iteration uses it
                                         if current_after == prev_after_sub:
                                             logger.warning(f"No progress paging {entity_label}; after cursor unchanged ({current_after}). Breaking to avoid loop.")
