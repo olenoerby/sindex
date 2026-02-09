@@ -2190,7 +2190,8 @@ def main_loop():
 
                                     # Track pages fetched and break if we hit the configured limit
                                     pages_fetched += 1
-                                    if pages_fetched >= MAX_PAGES_PER_SUBREDDIT:
+                                    # Treat non-positive values (0 or negative) as "no limit"
+                                    if MAX_PAGES_PER_SUBREDDIT > 0 and pages_fetched >= MAX_PAGES_PER_SUBREDDIT:
                                         logger.info(f"Reached MAX_PAGES_PER_SUBREDDIT={MAX_PAGES_PER_SUBREDDIT} for {entity_label}; stopping further paging in this iteration.")
                                         break
 
