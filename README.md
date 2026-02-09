@@ -44,7 +44,11 @@ A concise overview of the scanner's runtime phases and ordering decisions.
 - **Scan Targets**: iterate active scan configs ordered by `priority` (lower number = higher priority). For each target fetch recent posts (`fetch_subreddit_posts()`), apply `nsfw_only`, `allowed_users`, and per-config `keywords`, then pass posts to `process_post()`.
 - **Process Post (`process_post`)**: enforces `POST_INITIAL_SCAN_DAYS`, `POST_RESCAN_DAYS`, and `SKIP_RECENTLY_SCANNED_HOURS`; fetches comments, detects new/edited comments, inserts/updates `Post`/`Comment`/`Mention` rows, updates `post.unique_subreddits`, and sets `post.last_scanned`.
 - **Immediate Discovery Metadata**: when new subreddits are seen in comments, create `Subreddit` rows and update metadata immediately via `update_subreddit_metadata()` (rate-limited); `last_checked`, `next_retry_at`, and `retry_priority` are used for retry scheduling on 429s.
-- **Metadata Refresh Phase**: runs after scanning and processes subreddits in this order — 1) never-scanned (`last_checked IS NULL`), 2) missing metadata (NULL fields), 3) stale metadata (`last_checked` older than `METADATA_STALE_HOURS`), 4) re-check not-found subreddits every 7 days. Each refresh updates `last_checked`.
+- **Metadata Refresh Phase**: runs after scanning and processes subreddits in this order:
+— 1) never-scanned (`last_checked IS NULL`), 
+- 2) missing metadata (NULL fields), 
+- 3) stale metadata (`last_checked` older than `METADATA_STALE_HOURS`), 
+- 4) re-check not-found subreddits every 7 days. Each refresh updates `last_checked`.
 - **Post Rescan Phase**: periodically rescan posts from the DB using `rescan_posts_phase()` (controlled by `POST_RESCAN_DURATION`). Posting order is `last_scanned IS NULL` first, then by `last_scanned` ascending (oldest first); posts are processed via `process_post()` so `last_scanned` is updated.
 - **Idle Mode**: if there are no active scan configs, the scanner runs the metadata refresh loop continuously instead of fetching posts.
 - **Rate Limiting & Retries**: all Reddit API access goes through `RateLimiter` or `DistributedRateLimiter`. On 429 responses the scanner schedules `next_retry_at` and increments `retry_priority` to give previously-rate-limited rows higher retry precedence.
