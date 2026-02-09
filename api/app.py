@@ -295,7 +295,7 @@ def api_index():
     # dedupe and sort
     routes = sorted(list({(p, m, s) for p, m, s in routes}), key=lambda x: x[0])
     html = [
-        '<html><head><meta charset="utf-8"><title>API Endpoints</title>',
+        '<html><head><meta charset="utf-8"><title>API Endpoints</title><div>Test</div>',
         '  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X5E2L44KYG"></script>',
         '  <script>',
         "    window.dataLayer = window.dataLayer || [];",
