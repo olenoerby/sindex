@@ -294,7 +294,17 @@ def api_index():
         routes.append((path, m, summary))
     # dedupe and sort
     routes = sorted(list({(p, m, s) for p, m, s in routes}), key=lambda x: x[0])
-    html = ['<html><head><meta charset="utf-8"><title>API Endpoints</title></head><body>']
+    html = [
+        '<html><head><meta charset="utf-8"><title>API Endpoints</title>',
+        '  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X5E2L44KYG"></script>',
+        '  <script>',
+        "    window.dataLayer = window.dataLayer || [];",
+        "    function gtag(){dataLayer.push(arguments);}",
+        "    gtag('js', new Date());",
+        "    gtag('config', 'G-X5E2L44KYG');",
+        '  </script>',
+        '</head><body>'
+    ]
     html.append('<h1>API Endpoints</h1>')
     html.append('<ul>')
     for path, methods, summary in routes:
