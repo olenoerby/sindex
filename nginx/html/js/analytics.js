@@ -77,7 +77,7 @@ function updateTableRangeIndicators(){
     'topSubredditsTable',
     'topCommentersTable',
     'topPostsTable',
-    'topUniquePostsTable'
+    'topMentionersTable'
   ];
   tables.forEach(id => {
     try{
@@ -570,23 +570,24 @@ async function fetchTopBlocks(){
       }
     }
 
-    // Top posts by distinct subreddits
-    const tu = await fetch(`/stats/top_unique_posts?limit=15&days=${currentDays}`);
-    if(tu.ok){
-      const data = await tu.json();
+    // Top mentioners (users who mentioned the most distinct subreddits)
+    const tm = await fetch(`/stats/top_mentioners?limit=15&days=${currentDays}`);
+    if(tm.ok){
+      const data = await tm.json();
       const items = (data.items || []).slice(0,15);
       const dataKey = JSON.stringify(items);
-      if(cache.topBlocks.uniquePosts !== dataKey) {
-        cache.topBlocks.uniquePosts = dataKey;
-        const tbody = document.querySelector('#topUniquePostsTable tbody');
+      if(cache.topBlocks.mentioners !== dataKey) {
+        cache.topBlocks.mentioners = dataKey;
+        const tbody = document.querySelector('#topMentionersTable tbody');
 
         const renderCount = (count) => {
           tbody.innerHTML = '';
           items.slice(0, count).forEach((row, idx) => {
-            const title = (row.title || row.reddit_post_id || '').slice(0,120) || '(untitled)';
-            const url = `https://www.reddit.com/comments/${encodeURIComponent(row.reddit_post_id)}`;
+            if(!row.user_id) return;
+            const href = `https://www.reddit.com/user/${encodeURIComponent(row.user_id)}`;
+            const userCell = `<a href="${href}" target="_blank">${row.user_id}</a>`;
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${idx+1}</td><td><a href="${url}" target="_blank">${title}</a></td><td>${fmt(row.unique_subreddits)}</td>`;
+            tr.innerHTML = `<td>${idx+1}</td><td>${userCell}</td><td>${fmt(row.unique_subreddits)}</td>`;
             tbody.appendChild(tr);
           });
         };
@@ -595,11 +596,11 @@ async function fetchTopBlocks(){
         const expandedCount = Math.min(15, items.length);
         renderCount(defaultCount);
 
-        const existingBtn = document.getElementById('topUniquePostsTable-showmore');
+        const existingBtn = document.getElementById('topMentionersTable-showmore');
         if (existingBtn) existingBtn.remove();
         if (items.length > defaultCount) {
           const btn = document.createElement('button');
-          btn.id = 'topUniquePostsTable-showmore';
+          btn.id = 'topMentionersTable-showmore';
           btn.className = 'show-more-btn';
           btn.dataset.expanded = 'false';
           btn.textContent = `Show more (${expandedCount})`;
@@ -615,8 +616,8 @@ async function fetchTopBlocks(){
               btn.dataset.expanded = 'false';
             }
           });
-          const table = document.getElementById('topUniquePostsTable');
-          table.insertAdjacentElement('afterend', btn);
+          const table = document.getElementById('topMentionersTable');
+          if(table) table.insertAdjacentElement('afterend', btn);
         }
       }
     }
