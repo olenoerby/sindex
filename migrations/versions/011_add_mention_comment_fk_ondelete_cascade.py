@@ -1,0 +1,48 @@
+"""Add ON DELETE CASCADE to mention.comment_id FK
+
+Revision ID: 011_add_mention_comment_fk_ondelete_cascade
+Revises: 010_add_comment_last_scanned
+Create Date: 2026-02-09 00:00:00.000000
+"""
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision = '011_add_mention_comment_fk_ondelete_cascade'
+down_revision = '010_add_comment_last_scanned'
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    # Best-effort: drop existing FK (common name in Postgres is mention_comment_id_fkey)
+    try:
+        op.drop_constraint('mention_comment_id_fkey', 'mention', type_='foreignkey')
+    except Exception:
+        # If constraint name differs, fall back to recreating FK by issuing raw SQL
+        pass
+
+    # Create FK with ON DELETE CASCADE
+    op.create_foreign_key(
+        'mention_comment_id_fkey',
+        'mention',
+        'comment',
+        ['comment_id'],
+        ['id'],
+        ondelete='CASCADE'
+    )
+
+
+def downgrade():
+    # Drop cascade FK and recreate without cascade
+    try:
+        op.drop_constraint('mention_comment_id_fkey', 'mention', type_='foreignkey')
+    except Exception:
+        pass
+    op.create_foreign_key(
+        'mention_comment_id_fkey',
+        'mention',
+        'comment',
+        ['comment_id'],
+        ['id']
+    )

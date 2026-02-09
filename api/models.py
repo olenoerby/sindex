@@ -32,7 +32,7 @@ class Comment(Base):
     created_utc = Column(BigInteger, index=True)
     # timestamp when this comment was last scanned/processed by the scanner
     last_scanned = Column(DateTime, nullable=True)
-    mentions = relationship('Mention', back_populates='comment')
+    mentions = relationship('Mention', back_populates='comment', cascade='all, delete-orphan', passive_deletes=True)
     post = relationship('Post', back_populates='comments')
 
 
@@ -64,7 +64,7 @@ class Mention(Base):
     __tablename__ = 'mention'
     id = Column(Integer, primary_key=True)
     subreddit_id = Column(Integer, ForeignKey('subreddit.id'))
-    comment_id = Column(Integer, ForeignKey('comment.id'))
+    comment_id = Column(Integer, ForeignKey('comment.id', ondelete='CASCADE'))
     # store user id (author_fullname or username) for reference
     user_id = Column(String(255), nullable=True, index=True)
     post_id = Column(Integer, ForeignKey('post.id'))
@@ -73,7 +73,7 @@ class Mention(Base):
         UniqueConstraint('subreddit_id', 'comment_id', name='uq_mention_sub_comment'),
         UniqueConstraint('subreddit_id', 'user_id', name='uq_mention_sub_user'),
     )
-    comment = relationship('Comment', back_populates='mentions')
+    comment = relationship('Comment', back_populates='mentions', passive_deletes=True)
 
 
 class Analytics(Base):
