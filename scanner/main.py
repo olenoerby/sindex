@@ -1253,7 +1253,8 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 post_id=post.id,
                 body=c['body'],
                 created_utc=int(c.get('created_utc') or 0),
-                username=resolve_comment_user(c)
+                username=resolve_comment_user(c),
+                last_scanned=now
             )
             session.add(cm)
             session.commit()
@@ -1371,6 +1372,8 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
                 cm.body = fetched_body
                 cm.username = resolve_comment_user(c) or cm.username
                 cm.created_utc = int(c.get('created_utc') or cm.created_utc or 0)
+                # mark when this comment was processed/updated
+                cm.last_scanned = now
                 session.add(cm)
                 session.commit()
             except Exception:
@@ -2076,6 +2079,9 @@ def main_loop():
                         logger.debug('Failed to record scan start time')
 
                     sorted_configs = sorted(scan_configs.items(), key=lambda x: x[1].get('priority', 3))
+                    # Track overall progress: total posts fetched vs processed
+                    posts_total = 0
+                    posts_processed_total = 0
 
                     for subname, config in sorted_configs:
                         allowed_users = config['allowed_users']
@@ -2140,6 +2146,8 @@ def main_loop():
                                         logger.info(f"Scanning new posts from {entity_label} (priority {priority})")
 
                                     for p in children:
+                                        # Count this post as seen for overall totals
+                                        posts_total += 1
                                         pdata = p.get('data', {})
                                         if nsfw_only:
                                             over18 = bool(pdata.get('over_18') or pdata.get('over18'))
@@ -2155,6 +2163,7 @@ def main_loop():
                                             processed, discovered = process_post(p, session, source_subreddit_name=subname, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
                                         if processed:
                                             subreddit_processed_count += 1
+                                            posts_processed_total += 1
                                         if discovered:
                                             discovered_overall.update(discovered)
                                         if TEST_MAX_POSTS_PER_SUBREDDIT and subreddit_processed_count >= TEST_MAX_POSTS_PER_SUBREDDIT:
@@ -2183,6 +2192,11 @@ def main_loop():
                                     break
 
                 # Phase 5: Immediate Metadata Discovery (fetch metadata for discovered subs)
+                # Summary of primary scan progress
+                try:
+                    logger.info(f"Primary scan summary: processed {posts_processed_total} out of {posts_total} posts fetched")
+                except Exception:
+                    logger.debug('Failed to log primary scan summary')
                 if discovered_overall:
                     with temp_phase('Immediate Discovery Metadata'):
                         logger.info(f"Discovered {len(discovered_overall)} new subreddits during scan")

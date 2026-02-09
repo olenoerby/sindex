@@ -30,6 +30,8 @@ class Comment(Base):
     username = Column(String(255), nullable=True, index=True)
     body = Column(Text)
     created_utc = Column(BigInteger, index=True)
+    # timestamp when this comment was last scanned/processed by the scanner
+    last_scanned = Column(DateTime, nullable=True)
     mentions = relationship('Mention', back_populates='comment')
     post = relationship('Post', back_populates='comments')
 
