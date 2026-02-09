@@ -27,7 +27,7 @@ def upgrade():
         'mention_comment_id_fkey',
         'mention',
         'comment',
-        ['comment_id'],
+        ['reddit_comment_id'],
         ['id'],
         ondelete='CASCADE'
     )
@@ -43,6 +43,6 @@ def downgrade():
         'mention_comment_id_fkey',
         'mention',
         'comment',
-        ['comment_id'],
+        ['reddit_comment_id'],
         ['id']
     )
