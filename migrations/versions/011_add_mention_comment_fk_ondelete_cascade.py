@@ -1,15 +1,15 @@
 """Add ON DELETE CASCADE to mention.comment_id FK
 
-Revision ID: 011_add_mention_comment_fk_ondelete_cascade
-Revises: 010_add_comment_last_scanned
+Revision ID: 011
+Revises: 010
 Create Date: 2026-02-09 00:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = '011_add_mention_comment_fk_ondelete_cascade'
-down_revision = '010_add_comment_last_scanned'
+revision = '011'
+down_revision = '010'
 branch_labels = None
 depends_on = None
 
