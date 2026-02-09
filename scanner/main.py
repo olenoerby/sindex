@@ -2108,15 +2108,15 @@ def main_loop():
                                         children_count = len(data.get('data', {}).get('children', []) or [])
                                     except Exception:
                                         children_count = 'unknown'
-                                        current_after = data.get('data', {}).get('after')
+                                    current_after = data.get('data', {}).get('after')
                                     logger.info(f"Fetched {children_count} posts; after={current_after}")
                                     logger.debug(f"Paging state after fetch: prev_after={prev_after_sub}, current_after={current_after}")
-                                        # Update paging cursor immediately so next iteration uses it
-                                        if current_after == prev_after_sub:
-                                            logger.warning(f"No progress paging {entity_label}; after cursor unchanged ({current_after}). Breaking to avoid loop.")
-                                            break
-                                        prev_after_sub = current_after
-                                        after_sub = current_after
+                                    # Update paging cursor immediately so next iteration uses it
+                                    if current_after == prev_after_sub:
+                                        logger.warning(f"No progress paging {entity_label}; after cursor unchanged ({current_after}). Breaking to avoid loop.")
+                                        break
+                                    prev_after_sub = current_after
+                                    after_sub = current_after
                                 except Exception as e:
                                     error_str = str(e)
                                     error_type = type(e).__name__
