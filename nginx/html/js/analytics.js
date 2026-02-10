@@ -60,7 +60,7 @@ function initializeDateRange(){
 // Update card titles to show the selected date range
 function updateCardTitles(){
   const rangeText = currentDays >= 999999 ? 'All time' : `${currentDays}d`;
-  document.getElementById('totalMentionsTitle').textContent = `Total mentions (${rangeText})`;
+  document.getElementById('totalMentionsTitle').textContent = `Total subreddit mentions (${rangeText})`;
   document.getElementById('totalSubsTitle').textContent = `Total subreddits (${rangeText})`;
   document.getElementById('totalPostsTitle').textContent = `Total posts (${rangeText})`;
   document.getElementById('totalCommentsTitle').textContent = `Total comments (${rangeText})`;
