@@ -409,7 +409,7 @@ canvas {
 #tbl {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 12px;
+  margin-top: opx;
 }
 
 #tbl th,
