@@ -1586,6 +1586,17 @@ def rescan_posts_phase(duration_seconds):
                     except Exception:
                         pass
 
+                # Compute total number of candidate posts to rescan taking into
+                # consideration POST_RESCAN_DAYS and SKIP_RECENTLY_SCANNED_HOURS.
+                try:
+                    count_q = posts_q
+                    if SKIP_RECENTLY_SCANNED_HOURS and SKIP_RECENTLY_SCANNED_HOURS > 0:
+                        cutoff_recent = now_local() - timedelta(hours=SKIP_RECENTLY_SCANNED_HOURS)
+                        count_q = count_q.filter((models.Post.last_scanned == None) | (models.Post.last_scanned <= cutoff_recent))
+                    total_candidates = int(count_q.count() or 0)
+                except Exception:
+                    total_candidates = 0
+
                 # Order so that never-scanned (last_scanned IS NULL) come first,
                 # then older last_scanned values before newer ones.
                 try:
@@ -1626,6 +1637,12 @@ def rescan_posts_phase(duration_seconds):
                     processed, discovered = process_post(post_item, session, source_subreddit_name=None, require_fap_friday=False, ignored_subreddits=ignored_subreddits, ignored_users=ignored_users)
                     if processed:
                         processed_count += 1
+                    # Log progress showing how many posts processed out of the
+                    # total eligible candidates for this rescan phase.
+                    try:
+                        logger.info(f'Post rescan progress: processed {processed_count}/{total_candidates} posts')
+                    except Exception:
+                        pass
                 except Exception as e:
                     session.rollback()
                     logger.exception(f'Error rescanning post {candidate.reddit_post_id}: {e}')
