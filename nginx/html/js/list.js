@@ -311,7 +311,17 @@ function renderPaginationControls(){
 
     const makeLink = (text, aria, disabled, pageNum) => {
       if(disabled){ const s = document.createElement('span'); s.className = 'btn btn-ghost disabled'; s.setAttribute('aria-label', aria); s.textContent = text; return s; }
-      const a = document.createElement('a'); a.className = 'btn btn-ghost'; a.textContent = text; a.href = buildPageUrl(pageNum); a.setAttribute('aria-label', aria); return a;
+      const a = document.createElement('a'); a.className = 'btn btn-ghost'; a.textContent = text; a.href = buildPageUrl(pageNum); a.setAttribute('aria-label', aria);
+      // Use AJAX navigation: prevent full page load and request via loadPage
+      a.addEventListener('click', (e)=>{
+        e.preventDefault();
+        if(isLoadingPage) return;
+        if(Number(currentPage) === Number(pageNum)) return;
+        // push state so URL reflects requested page immediately
+        try{ window.history.pushState({}, '', buildPageUrl(pageNum)); }catch(e){}
+        loadPage(pageNum);
+      });
+      return a;
     };
     const first = makeLink('«', 'First page', currentPage <= 1, 1);
 
@@ -326,8 +336,9 @@ function renderPaginationControls(){
     pageInput.addEventListener('change', ()=>{ 
       const v = Number(pageInput.value||0); 
       if(v>=1 && v<=totalPages){ 
-        // navigate to full URL so page can be reloaded with same state
-        window.location.href = buildPageUrl(v);
+        if(isLoadingPage) { pageInput.value = String(currentPage); return; }
+        try{ window.history.pushState({}, '', buildPageUrl(v)); }catch(e){}
+        loadPage(v);
       } else { 
         pageInput.value = String(currentPage); 
       } 
@@ -1039,6 +1050,21 @@ function openDescriptionModal(htmlText, lastChecked){
 // initial load: restore preferences, then show age confirmation (if needed) and fetch the saved page
 loadPrefs();
 updateSortedHeader();
+
+// Handle back/forward navigation to respect URL params for page changes
+window.addEventListener('popstate', (e)=>{
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get('page');
+    const pnum = page ? Number(page) : 1;
+    if(Number.isFinite(pnum) && pnum >= 1 && pnum !== currentPage){
+      loadPage(pnum);
+    }
+  }catch(e){/* ignore */}
+});
+
+// Apply URL parameters (if present) to override prefs before initial load
+applyUrlParams();
 
 // Ensure clear (X) button visibility reflects loaded query from prefs
 try{
