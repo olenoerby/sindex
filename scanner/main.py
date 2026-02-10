@@ -1580,6 +1580,17 @@ def rescan_posts_phase(duration_seconds):
                     logger.info('No posts found to rescan. Post rescan phase complete.')
                     break
 
+                # Reserve this candidate immediately by updating its `last_scanned`.
+                # This prevents the same row from being repeatedly selected during
+                # a long `POST_RESCAN_DURATION` loop if there are few posts in DB.
+                try:
+                    candidate.last_scanned = datetime.utcnow()
+                    session.add(candidate)
+                    session.commit()
+                    logger.debug(f"Reserved post {candidate.reddit_post_id} for rescan (last_scanned updated)")
+                except Exception:
+                    session.rollback()
+
                 # Prepare a minimal reddit-style post_item for process_post
                 post_item = {
                     'data': {
