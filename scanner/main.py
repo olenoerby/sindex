@@ -1191,11 +1191,25 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     # Skip posts that were recently scanned (helps avoid reprocessing on container restart)
     if existing and SKIP_RECENTLY_SCANNED_HOURS > 0:
         if hasattr(existing, 'last_scanned') and existing.last_scanned:
-            time_since_scan = now - existing.last_scanned
-            if time_since_scan < timedelta(hours=SKIP_RECENTLY_SCANNED_HOURS):
-                hours_ago = time_since_scan.total_seconds() / 3600
-                logger.debug(f"Post {reddit_id} was scanned {hours_ago:.1f}h ago (within {SKIP_RECENTLY_SCANNED_HOURS}h window), skipping")
-                return (True, set())
+            try:
+                # Normalize datetimes to UTC for subtraction. Database rows may
+                # contain naive datetimes (previously stored as UTC) or
+                # timezone-aware datetimes (after recent changes). Treat naive
+                # timestamps as UTC.
+                existing_last = existing.last_scanned
+                now_utc = datetime.now(ZoneInfo('UTC'))
+                if existing_last.tzinfo is None:
+                    existing_last_utc = existing_last.replace(tzinfo=ZoneInfo('UTC'))
+                else:
+                    existing_last_utc = existing_last.astimezone(ZoneInfo('UTC'))
+                time_since_scan = now_utc - existing_last_utc
+                if time_since_scan < timedelta(hours=SKIP_RECENTLY_SCANNED_HOURS):
+                    hours_ago = time_since_scan.total_seconds() / 3600
+                    logger.debug(f"Post {reddit_id} was scanned {hours_ago:.1f}h ago (within {SKIP_RECENTLY_SCANNED_HOURS}h window), skipping")
+                    return (True, set())
+            except Exception:
+                # If something odd happened with timestamps, conservatively continue
+                pass
     
     # Skip re-scanning existing posts that are too old
     if existing and POST_RESCAN_DAYS is not None:
