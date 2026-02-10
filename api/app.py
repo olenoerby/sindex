@@ -919,7 +919,13 @@ def subreddit_mentions(name: str, page: int = 1, per_page: int = 50):
     page = max(1, int(page))
     offset = (page - 1) * per_page
     with Session(engine) as session:
-        s = session.query(models.Subreddit).filter(models.Subreddit.name == name.lower()).first()
+        # Normalize the provided name (strip r/ prefix, handle u/ profiles, lowercase)
+        try:
+            from scanner.main import normalize
+            lname = normalize(name)
+        except Exception:
+            lname = name.lower().strip()
+        s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
         if not s:
             raise HTTPException(status_code=404, detail="Subreddit not found")
         q = session.query(models.Mention).filter(models.Mention.subreddit_id == s.id).order_by(desc(models.Mention.timestamp))
@@ -982,7 +988,13 @@ def random_sample(n: int = 10, seed: Optional[str] = None):
 def get_subreddit(name: str):
     with Session(engine) as session:
         # lookup by name column since the PK is an integer id
-        s = session.query(models.Subreddit).filter(models.Subreddit.name == name.lower()).first()
+        # Normalize the provided name (strip r/ prefix, handle u/ profiles, lowercase)
+        try:
+            from scanner.main import normalize
+            lname = normalize(name)
+        except Exception:
+            lname = name.lower().strip()
+        s = session.query(models.Subreddit).filter(models.Subreddit.name == lname).first()
         if not s:
             raise HTTPException(status_code=404, detail="Subreddit not found")
         mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
@@ -1086,7 +1098,13 @@ def list_mentions(page: int = 1, per_page: int = 50, subreddit: Optional[str] = 
     with Session(engine) as session:
         q = session.query(models.Mention).order_by(desc(models.Mention.timestamp))
         if subreddit:
-            q = q.join(models.Subreddit).filter(models.Subreddit.name == subreddit.lower())
+            # Normalize provided subreddit param before filtering
+            try:
+                from scanner.main import normalize
+                lname = normalize(subreddit)
+            except Exception:
+                lname = subreddit.lower().strip()
+            q = q.join(models.Subreddit).filter(models.Subreddit.name == lname)
         rows = q.offset(offset).limit(per_page).all()
         out = []
         for m in rows:
