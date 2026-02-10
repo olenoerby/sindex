@@ -45,6 +45,15 @@ def now_local():
     """Return current time as a timezone-aware datetime in configured zone."""
     return datetime.now(DEFAULT_ZONE)
 
+# If TZ is set in environment, apply it to the C runtime so `time.localtime()`
+# and `time.strftime()` reflect the configured zone where possible.
+if os.getenv('TZ'):
+    try:
+        time.tzset()
+    except Exception:
+        # time.tzset may not be available on all platforms; ignore if so.
+        pass
+
 # Note: metadata fetch will be performed synchronously when discovering subreddits
 
 # Logging configuration: emit to stdout/stderr (container logs)
@@ -52,11 +61,11 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 
 logger = logging.getLogger('scanner')
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-# Use stdout/stderr (container logs) with ISO 8601 timestamp format (UTC)
+# Use stdout/stderr (container logs) with ISO 8601 timestamp format (local TZ)
 # Inject a dynamic `phase` field into every log record so console output
 # shows which phase the scanner is currently in.
-formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ')
-formatter.converter = time.gmtime  # Use UTC instead of local time
+formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s [%(phase)s]: %(message)s', datefmt='%Y-%m-%dT%H:%M:%S%z')
+formatter.converter = time.localtime  # Use process local time (honors TZ when available)
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 CURRENT_PHASE = 'Startup'
