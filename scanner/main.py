@@ -1226,7 +1226,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     walk_comments(comments_json, found)
 
     # If there are no comments at all, create the post record and move on
-        if not found:
+    if not found:
         if not existing:
             try:
                 post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, author=author)
