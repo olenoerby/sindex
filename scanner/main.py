@@ -1226,10 +1226,10 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     walk_comments(comments_json, found)
 
     # If there are no comments at all, create the post record and move on
-    if not found:
+        if not found:
         if not existing:
             try:
-                post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, original_poster=author)
+                post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, author=author)
                 if source_sub:
                     post.subreddit_id = source_sub.id
                 post.last_scanned = now
@@ -1277,7 +1277,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     # Ensure a Post row exists (create if missing)
     if not existing:
         try:
-            post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, original_poster=author)
+            post = models.Post(reddit_post_id=reddit_id, title=title, created_utc=created_utc, url=url, author=author)
             if source_sub:
                 post.subreddit_id = source_sub.id
             post.last_scanned = now
@@ -1296,10 +1296,15 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
             logger.info(f"Processing post {reddit_id} ({format_ts(created_utc)}) - {len(missing)} new comments{source_sub_str}")
     else:
         post = existing
-        # Update subreddit_id, original_poster, and last_scanned
+        # Update subreddit_id, author, and last_scanned
         if source_sub:
             post.subreddit_id = source_sub.id
-        post.original_poster = author
+        # Only set author if it's missing
+        try:
+            if not getattr(post, 'author', None):
+                post.author = author
+        except Exception:
+            post.author = author
         post.last_scanned = now
         session.add(post)
         session.commit()
@@ -1610,7 +1615,7 @@ def rescan_posts_phase(duration_seconds):
                         'title': candidate.title,
                         'created_utc': candidate.created_utc,
                         'permalink': candidate.url,
-                        'author': candidate.original_poster
+                        'author': candidate.author
                     }
                 }
 

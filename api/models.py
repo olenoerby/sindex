@@ -17,7 +17,7 @@ class Post(Base):
     # timestamp when this post was last scanned for comments
     last_scanned = Column(DateTime, nullable=True)
     subreddit_id = Column(Integer, ForeignKey('subreddit.id'), nullable=True)
-    original_poster = Column(String, nullable=True)
+    author = Column(String, nullable=True)
     comments = relationship('Comment', back_populates='post')
 
 
