@@ -660,6 +660,28 @@ th.sticky {
   text-overflow: ellipsis;
 }
 
+/* Modern list row appearance to match index cards */
+.table tbody tr { 
+  transition: box-shadow 0.12s ease, transform 0.08s ease, background 0.12s;
+  border-radius: 10px;
+}
+.table tbody tr:hover { 
+  box-shadow: 0 8px 24px rgba(5,10,25,0.25);
+  transform: translateY(-2px);
+  background: rgba(255,255,255,0.03);
+}
+.inline-badges { margin-left: 8px; display: inline-flex; gap: 6px; align-items: center; }
+.nsfw-badge, .new-badge { padding: 4px 8px; border-radius: 999px; font-weight:700; font-size:11px; }
+.nsfw-badge { background: rgba(185,28,28,0.12); color: #ffb4b4; border: 1px solid rgba(185,28,28,0.22); }
+.new-badge { background: rgba(30,198,179,0.12); color: #9ff6e8; border: 1px solid rgba(30,198,179,0.18); }
+
+/* Focus styles for keyboard navigation */
+.table tbody tr:focus { outline: 3px solid rgba(30,198,179,0.12); box-shadow: 0 6px 18px rgba(5,10,25,0.2); }
+
+/* Small helpers for pagination links */
+.pagination-row a.btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.pagination-row .disabled { opacity: 0.5; pointer-events: none; }
+
 /* Controls card */
 .controls.card {
   display: flex;

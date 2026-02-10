@@ -77,6 +77,45 @@ function loadPrefs(){
   }catch(e){}
 }
 
+// Read URL query parameters and apply to UI (overrides cookie prefs when present)
+function applyUrlParams(){
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('q');
+    const page = params.get('page');
+    const per = params.get('per_page') || params.get('per');
+    const sort = params.get('sort');
+    const sort_dir = params.get('sort_dir');
+    if(q !== null && document.getElementById('q')) document.getElementById('q').value = decodeURIComponent(q);
+    if(page !== null && Number.isFinite(Number(page))) currentPage = Math.max(1, Number(page));
+    if(per !== null && Number.isFinite(Number(per))) perPage = Number(per);
+    if(sort) currentSort = sort;
+    if(sort_dir) currentSortDir = sort_dir;
+    // apply filter params
+    const mapBool = (v) => (v === 'true');
+    ['show_available','show_banned','show_pending','show_nsfw','show_non_nsfw'].forEach(k=>{
+      const v = params.get(k);
+      if(v !== null){
+        const id = k.replace('show_','show').replace('non_','Non'); // best-effort mapping
+        // map to element ids used in page
+        if(k === 'show_nsfw' && document.getElementById('showNSFW')) document.getElementById('showNSFW').checked = mapBool(v);
+        if(k === 'show_non_nsfw' && document.getElementById('showNonNSFW')) document.getElementById('showNonNSFW').checked = mapBool(v);
+        if(k === 'show_available' && document.getElementById('showAvailable')) document.getElementById('showAvailable').checked = mapBool(v);
+        if(k === 'show_banned' && document.getElementById('showBanned')) document.getElementById('showBanned').checked = mapBool(v);
+        if(k === 'show_pending' && document.getElementById('showPending')) document.getElementById('showPending').checked = mapBool(v);
+      }
+    });
+    // numeric filters
+    ['min_mentions','max_mentions','min_subscribers','max_subscribers','first_mentioned_days'].forEach(k=>{
+      const v = params.get(k);
+      if(v !== null){
+        const id = k.replace(/_/g,'');
+        try{ const el = document.getElementById(id) || document.getElementById(k); if(el) el.value = v; }catch(e){}
+      }
+    });
+  }catch(e){ /* ignore */ }
+}
+
 function updateColumnVisibility(list){
   try{
     // Always show columns. Do not hide table columns even if no rows have data
@@ -143,6 +182,8 @@ async function loadPage(page = 1){
     render();
     console.log('Render complete');
     renderPaginationControls();
+    // Update URL to reflect current state (without navigating)
+    try{ syncUrlWithState(); }catch(e){}
     setControlsDisabled(false);
     isLoadingPage = false;
   }catch(e){
@@ -153,6 +194,43 @@ async function loadPage(page = 1){
     setControlsDisabled(false);
     isLoadingPage = false;
   }
+}
+
+// Build a query object of current UI state
+function getCurrentStateParams(){
+  const params = new URLSearchParams();
+  try{
+    if(currentPage) params.set('page', String(currentPage));
+    if(perPage) params.set('per_page', String(perPage));
+    if(currentSort) params.set('sort', currentSort);
+    if(currentSortDir) params.set('sort_dir', currentSortDir);
+    const qraw = (document.getElementById('q') && document.getElementById('q').value) ? String(document.getElementById('q').value).trim() : '';
+    if(qraw) params.set('q', normalizeQuery(qraw));
+    const mm = document.getElementById('minMentions') ? document.getElementById('minMentions').value : '';
+    if(mm) params.set('min_mentions', mm);
+    const mM = document.getElementById('maxMentions') ? document.getElementById('maxMentions').value : '';
+    if(mM) params.set('max_mentions', mM);
+    const ms = document.getElementById('minSubscribers') ? document.getElementById('minSubscribers').value : '';
+    if(ms) params.set('min_subscribers', ms);
+    const mS = document.getElementById('maxSubscribers') ? document.getElementById('maxSubscribers').value : '';
+    if(mS) params.set('max_subscribers', mS);
+    // show flags
+    if(document.getElementById('showAvailable')) params.set('show_available', document.getElementById('showAvailable').checked ? 'true' : 'false');
+    if(document.getElementById('showBanned')) params.set('show_banned', document.getElementById('showBanned').checked ? 'true' : 'false');
+    if(document.getElementById('showPending')) params.set('show_pending', document.getElementById('showPending').checked ? 'true' : 'false');
+    if(document.getElementById('showNSFW')) params.set('show_nsfw', document.getElementById('showNSFW').checked ? 'true' : 'false');
+    if(document.getElementById('showNonNSFW')) params.set('show_non_nsfw', document.getElementById('showNonNSFW').checked ? 'true' : 'false');
+  }catch(e){}
+  return params;
+}
+
+// Replace the URL in the address bar (no navigation) to reflect current state
+function syncUrlWithState(){
+  try{
+    const params = getCurrentStateParams();
+    const newUrl = window.location.pathname + '?' + params.toString();
+    window.history.replaceState({}, '', newUrl);
+  }catch(e){/* ignore */}
 }
 
 function buildFilterQueryParams(){
@@ -218,18 +296,26 @@ function renderPaginationControls(){
   }
 
   const totalPages = Math.max(1, Math.ceil((filteredCount || 0) / perPage));
+  // helper to build page URL preserving filter params
+  const buildPageUrl = (pageNum) => {
+    try{
+      const params = getCurrentStateParams();
+      params.set('page', String(pageNum));
+      return window.location.pathname + '?' + params.toString();
+    }catch(e){ return window.location.pathname + '?page=' + String(pageNum); }
+  };
 
   function makeControls(){
   const ctr = document.createElement('div');
   ctr.className = 'pagination-row';
 
-    const first = document.createElement('button'); first.className = 'btn btn-ghost'; first.textContent = '«'; first.setAttribute('aria-label','First page');
-    first.disabled = currentPage <= 1;
-    first.addEventListener('click', ()=>{ if(isLoadingPage) return; if(currentPage>1) { loadPage(1); try{ savePrefs(); }catch(e){} } });
+    const makeLink = (text, aria, disabled, pageNum) => {
+      if(disabled){ const s = document.createElement('span'); s.className = 'btn btn-ghost disabled'; s.setAttribute('aria-label', aria); s.textContent = text; return s; }
+      const a = document.createElement('a'); a.className = 'btn btn-ghost'; a.textContent = text; a.href = buildPageUrl(pageNum); a.setAttribute('aria-label', aria); return a;
+    };
+    const first = makeLink('«', 'First page', currentPage <= 1, 1);
 
-    const prev = document.createElement('button'); prev.className = 'btn btn-ghost'; prev.textContent = '◀'; prev.setAttribute('aria-label','Previous page');
-    prev.disabled = currentPage <= 1;
-    prev.addEventListener('click', ()=>{ if(isLoadingPage) return; if(currentPage>1) { loadPage(currentPage-1); try{ savePrefs(); }catch(e){} } });
+    const prev = makeLink('◀', 'Previous page', currentPage <= 1, Math.max(1, currentPage-1));
 
     const pageInput = document.createElement('input');
     pageInput.type = 'number';
@@ -238,26 +324,18 @@ function renderPaginationControls(){
     pageInput.className = 'muted input-small';
     pageInput.value = String(currentPage);
     pageInput.addEventListener('change', ()=>{ 
-      console.log('Page input change event fired! isLoadingPage=', isLoadingPage, 'Old currentPage:', currentPage, 'New input value:', pageInput.value); 
-      if(isLoadingPage) { console.log('Ignoring page input change - page load in progress'); pageInput.value = String(currentPage); return; }
       const v = Number(pageInput.value||0); 
       if(v>=1 && v<=totalPages){ 
-        console.log('Page input calling loadPage with:', v);
-        loadPage(v); 
-        try{ savePrefs(); }catch(e){} 
+        // navigate to full URL so page can be reloaded with same state
+        window.location.href = buildPageUrl(v);
       } else { 
         pageInput.value = String(currentPage); 
       } 
     });
     const pageTotal = document.createElement('span'); pageTotal.className = 'muted ml-6'; pageTotal.textContent = '/ ' + String(totalPages);
 
-    const next = document.createElement('button'); next.className = 'btn btn-ghost'; next.textContent = '▶'; next.setAttribute('aria-label','Next page');
-    next.disabled = currentPage >= totalPages;
-    next.addEventListener('click', ()=>{ console.log('Next button clicked, isLoadingPage=', isLoadingPage, 'currentPage=', currentPage, 'totalPages=', totalPages); if(isLoadingPage) { console.log('Ignoring Next click - page load in progress'); return; } if(currentPage<totalPages) { loadPage(currentPage+1); try{ savePrefs(); }catch(e){} } });
-
-    const last = document.createElement('button'); last.className = 'btn btn-ghost'; last.textContent = '»'; last.setAttribute('aria-label','Last page');
-    last.disabled = currentPage >= totalPages;
-    last.addEventListener('click', ()=>{ if(isLoadingPage) return; if(currentPage<totalPages) { loadPage(totalPages); try{ savePrefs(); }catch(e){} } });
+    const next = makeLink('▶', 'Next page', currentPage >= totalPages, Math.min(totalPages, currentPage+1));
+    const last = makeLink('»', 'Last page', currentPage >= totalPages, totalPages);
 
     ctr.appendChild(first);
     ctr.appendChild(prev);
@@ -301,6 +379,7 @@ function render(){
   tbody.innerHTML = '';
   for(const s of list){
     const tr = document.createElement('tr');
+    tr.tabIndex = 0; // make focusable for keyboard navigation
     const nameTd = document.createElement('td');
     nameTd.classList.add('col-name');
     const a = document.createElement('a');
@@ -450,6 +529,22 @@ function render(){
     }
     tr.appendChild(descTd);
     tbody.appendChild(tr);
+    // keyboard navigation: Enter opens description; Arrow keys move
+    tr.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter'){
+        // open description modal for this row
+        const desc = (s.public_description_html && s.public_description_html.length>0) ? s.public_description_html : (s.description || '');
+        openDescriptionModal(desc || 'No description available', s.last_checked);
+      } else if(e.key === 'ArrowDown'){
+        e.preventDefault();
+        const next = tr.nextElementSibling;
+        if(next) next.focus();
+      } else if(e.key === 'ArrowUp'){
+        e.preventDefault();
+        const prev = tr.previousElementSibling;
+        if(prev) prev.focus();
+      }
+    });
   }
   // If list is empty, show a full-width row with a Reset button so users can quickly restore filters
   if(list.length === 0){
