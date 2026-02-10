@@ -955,7 +955,15 @@ def random_sample(n: int = 10, seed: Optional[str] = None):
                 subq = subq.order_by(func.random())
         except Exception:
             subq = subq.order_by(func.random())
-        rows = subq.limit(n).all()
+
+        # Execute the query. If the connected DB doesn't support functions used above
+        # (for example `md5` or `concat` in SQLite), catch the execution error and
+        # retry with a safe `random()` ordering to avoid returning 500.
+        try:
+            rows = subq.limit(n).all()
+        except Exception:
+            api_logger.exception("random_sample query failed; falling back to random order")
+            rows = subq.order_by(func.random()).limit(n).all()
         items = []
         for row in rows:
             s, mentions = row
