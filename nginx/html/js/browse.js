@@ -79,6 +79,17 @@ function createSubredditCard(sub) {
     statusBadge += '<span class="unavailable-badge">Unavailable</span>';
   }
 
+  // Show NEW badge for subreddits first mentioned within the last 30 days.
+  try {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const firstMention = sub.first_mentioned ? Number(sub.first_mentioned) : (sub.created_utc ? Number(sub.created_utc) : 0);
+    const THIRTY_DAYS_SEC = 30 * 24 * 60 * 60;
+    if (firstMention && (nowSec - firstMention) <= THIRTY_DAYS_SEC) {
+      // Prepend so NEW appears before other badges
+      statusBadge = '<span class="new-badge">NEW</span>' + statusBadge;
+    }
+  } catch(e) { /* ignore malformed dates */ }
+
   const title = decodeHtml(sub.title || 'No title');
   const description = decodeHtml(sub.description || 'No description available');
   
