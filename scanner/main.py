@@ -6,6 +6,7 @@ import logging
 from dotenv import load_dotenv
 # file-based rotating logs removed; rely on container stdout/stderr
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 import httpx
 from sqlalchemy import create_engine, text, func
@@ -32,6 +33,17 @@ from api.distributed_rate_limiter import DistributedRateLimiter
 # Load environment variables from .env at repo root so values like
 # `POST_COMMENT_LOOKBACK_DAYS` can be set without editing `main.py`.
 load_dotenv()
+
+# Timezone helper: use `TZ` env var when present, fall back to UTC.
+TZ_NAME = os.getenv('TZ', 'UTC')
+try:
+    DEFAULT_ZONE = ZoneInfo(TZ_NAME)
+except Exception:
+    DEFAULT_ZONE = ZoneInfo('UTC')
+
+def now_local():
+    """Return current time as a timezone-aware datetime in configured zone."""
+    return datetime.now(DEFAULT_ZONE)
 
 # Note: metadata fetch will be performed synchronously when discovering subreddits
 
@@ -533,7 +545,7 @@ def startup_metadata_prefetch():
     try:
         with Session(engine) as session:
             from sqlalchemy import or_
-            now = datetime.utcnow()
+            now = now_local()
             missing_q = session.query(models.Subreddit).filter(
                 or_(models.Subreddit.display_name == None, models.Subreddit.display_name == ''),
                 or_(models.Subreddit.title == None, models.Subreddit.title == ''),
@@ -782,7 +794,7 @@ def _parse_retry_after(header_value: str):
         # Example: Wed, 21 Oct 2015 07:28:00 GMT
         dt = datetime.strptime(header_value, '%a, %d %b %Y %H:%M:%S %Z')
         # Compute seconds until that time
-        delta = (dt - datetime.utcnow()).total_seconds()
+        delta = (dt - now_local()).total_seconds()
         return int(delta) if delta > 0 else 0
     except Exception:
         return None
@@ -971,13 +983,13 @@ def should_refresh_sub(sub: models.Subreddit, now: datetime = None) -> bool:
     """
     try:
         if now is None:
-            now = datetime.utcnow()
+            now = now_local()
         # If a future retry is scheduled (from a previous 429), skip until then
         try:
             nra = getattr(sub, 'next_retry_at', None)
             if nra:
                 if now is None:
-                    now = datetime.utcnow()
+                    now = now_local()
                 if nra and nra > now:
                     return False
         except Exception:
@@ -1162,7 +1174,7 @@ def process_post(post_item, session: Session, source_subreddit_name: str = None,
     # to catch edited comments. Older posts are skipped to avoid reprocessing a large
     # backlog (comments older than ~180 days are archived anyway).
     existing = session.query(models.Post).filter_by(reddit_post_id=reddit_id).first()
-    now = datetime.utcnow()
+    now = now_local()
     
     # Skip posts that are too old to initially scan (not in database yet)
     if not existing and POST_INITIAL_SCAN_DAYS is not None:
@@ -1564,7 +1576,7 @@ def rescan_posts_phase(duration_seconds):
                 posts_q = session.query(models.Post)
                 if POST_RESCAN_DAYS is not None:
                     try:
-                        cutoff_ts = int((datetime.utcnow() - timedelta(days=POST_RESCAN_DAYS)).timestamp())
+                        cutoff_ts = int((now_local() - timedelta(days=POST_RESCAN_DAYS)).timestamp())
                         posts_q = posts_q.filter(models.Post.created_utc >= cutoff_ts)
                     except Exception:
                         pass
@@ -1584,7 +1596,7 @@ def rescan_posts_phase(duration_seconds):
                 # This prevents the same row from being repeatedly selected during
                 # a long `POST_RESCAN_DURATION` loop if there are few posts in DB.
                 try:
-                    candidate.last_scanned = datetime.utcnow()
+                    candidate.last_scanned = now_local()
                     session.add(candidate)
                     session.commit()
                     logger.debug(f"Reserved post {candidate.reddit_post_id} for rescan (last_scanned updated)")
@@ -1774,10 +1786,10 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                 ra = None
             try:
                 if ra and ra > 0:
-                    sub.next_retry_at = datetime.utcnow() + timedelta(seconds=int(ra))
+                    sub.next_retry_at = now_local() + timedelta(seconds=int(ra))
                 else:
                     # fallback: schedule a conservative retry window (e.g., 10 * API_RATE_DELAY_SECONDS)
-                    sub.next_retry_at = datetime.utcnow() + timedelta(seconds=max(30, int(API_RATE_DELAY_SECONDS * 10)))
+                    sub.next_retry_at = now_local() + timedelta(seconds=max(30, int(API_RATE_DELAY_SECONDS * 10)))
                 # Increase retry_priority so top-listed subreddits are retried earlier
                 try:
                     sub.retry_priority = int(sub.retry_priority or 0) + 1
@@ -1798,7 +1810,7 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
         try:
             # Record when we last attempted to check this subreddit so idle
             # sweeps will not repeatedly try the same rows immediately.
-            sub.last_checked = datetime.utcnow()
+            sub.last_checked = now_local()
         except Exception:
             pass
         session.add(sub)
@@ -1830,7 +1842,7 @@ def refresh_metadata_phase(duration_seconds):
     
     # Count subreddits in each priority at start
     with Session(engine) as session:
-        cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+        cutoff_24h = now_local() - timedelta(hours=24)
         
         never_scanned = session.query(models.Subreddit).filter(
             models.Subreddit.last_checked == None,
@@ -1857,7 +1869,7 @@ def refresh_metadata_phase(duration_seconds):
     
     while time.time() < end_time:
         with Session(engine) as session:
-            cutoff_24h = datetime.utcnow() - timedelta(hours=METADATA_STALE_HOURS)
+            cutoff_24h = now_local() - timedelta(hours=METADATA_STALE_HOURS)
             
             # Priority 1: Subreddits NEVER scanned (last_checked is null)
             # Ordered by first_mentioned (oldest discoveries first)
@@ -1909,7 +1921,7 @@ def refresh_metadata_phase(duration_seconds):
             # Priority 4: Re-check "not found" subreddits every 7 days (they may have been created)
             # Banned subreddits are never re-checked as bans are permanent
             if not subreddit_to_refresh:
-                cutoff_7d = datetime.utcnow() - timedelta(days=7)
+                cutoff_7d = now_local() - timedelta(days=7)
                 subreddit_to_refresh = session.query(models.Subreddit).filter(
                     models.Subreddit.subreddit_found == False,
                     models.Subreddit.is_banned == False,
@@ -1962,7 +1974,7 @@ def refresh_metadata_phase(duration_seconds):
                 ).count()
                 remaining_msg = f" [{remaining_count} stale metadata remaining]"
             elif priority_level == 4:
-                cutoff_7d = datetime.utcnow() - timedelta(days=7)
+                cutoff_7d = now_local() - timedelta(days=7)
                 remaining_count = session.query(models.Subreddit).filter(
                     models.Subreddit.subreddit_found == False,
                     models.Subreddit.is_banned == False,
@@ -2141,7 +2153,7 @@ def main_loop():
                     try:
                         analytics = session.query(models.Analytics).first()
                         if analytics:
-                            analytics.last_scan_started = datetime.utcnow()
+                            analytics.last_scan_started = now_local()
                             mentions_before = analytics.total_mentions or 0
                             session.commit()
                     except Exception:
