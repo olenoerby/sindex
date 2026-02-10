@@ -61,7 +61,7 @@ function initializeDateRange(){
 function updateCardTitles(){
   const rangeText = currentDays >= 999999 ? 'All time' : `${currentDays}d`;
   document.getElementById('totalMentionsTitle').textContent = `Total subreddit mentions (${rangeText})`;
-  document.getElementById('totalSubsTitle').textContent = `Total subreddits (${rangeText})`;
+  document.getElementById('totalSubsTitle').textContent = `Total unique subreddits (${rangeText})`;
   document.getElementById('totalPostsTitle').textContent = `Total posts (${rangeText})`;
   document.getElementById('totalCommentsTitle').textContent = `Total comments (${rangeText})`;
   document.getElementById('peakMentionTitle').textContent = `Peak mention day (${rangeText})`;
