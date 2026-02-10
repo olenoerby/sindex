@@ -335,6 +335,23 @@ function render(){
       a.textContent = s.display_name_prefixed || ('/r/' + s.name);
     }
     nameTd.appendChild(a);
+    // Add status badges (NEW, NSFW) next to the subreddit link in the list view
+    try {
+      const badgesSpan = document.createElement('span');
+      badgesSpan.className = 'inline-badges';
+      const nowTs = Math.floor(Date.now() / 1000);
+      const firstMention = s.first_mentioned ? Number(s.first_mentioned) : (s.created_utc ? Number(s.created_utc) : 0);
+      const THIRTY_DAYS_SEC = 30 * 24 * 60 * 60;
+      // NEW badge: appeared within last 30 days
+      if (firstMention && (nowTs - firstMention) <= THIRTY_DAYS_SEC) {
+        const nb = document.createElement('span'); nb.className = 'new-badge'; nb.textContent = 'NEW'; badgesSpan.appendChild(nb);
+      }
+      // NSFW badge: when flagged as over18 (support both field names)
+      if (s.over18 === true || s.is_over18 === true || String(s.over18) === 'true' || String(s.is_over18) === 'true') {
+        const ns = document.createElement('span'); ns.className = 'nsfw-badge'; ns.textContent = 'NSFW'; badgesSpan.appendChild(ns);
+      }
+      if (badgesSpan.children.length > 0) nameTd.appendChild(badgesSpan);
+    } catch(e) { /* ignore DOM errors */ }
     tr.appendChild(nameTd);
 
     const titleTd = document.createElement('td');
