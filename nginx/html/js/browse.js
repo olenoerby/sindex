@@ -238,61 +238,81 @@ async function loadSubreddits() {
 // Update pagination buttons
 function updatePagination() {
   const totalPages = Math.max(1, Math.ceil(totalResults / perPage));
-  const paginationEl = document.getElementById('pagination');
-  if(!paginationEl) return;
+  const targets = [document.getElementById('pagination'), document.getElementById('paginationTop')].filter(Boolean);
+  if (!targets.length) return;
 
-  // Build controls similar to list.js pagination: First, Prev, page input, / total, Next, Last
-  paginationEl.innerHTML = '';
-  const ctr = document.createElement('div');
-  ctr.className = 'pagination-row';
+  // Build a fresh set of controls for each target so event handlers bind correctly
+  const buildControls = () => {
+    const ctr = document.createElement('div');
+    ctr.className = 'pagination-row';
 
-  const makeBtn = (text, aria, disabled, onClick) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'page-btn';
-    b.textContent = text;
-    b.setAttribute('aria-label', aria);
-    b.disabled = !!disabled;
-    if(onClick) b.addEventListener('click', onClick);
-    return b;
+    const buildPageUrl = (pageNum) => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        params.set('page', String(pageNum));
+        return `${window.location.pathname}?${params.toString()}`;
+      } catch(e) {
+        return `${window.location.pathname}?page=${pageNum}`;
+      }
+    };
+
+    const makeLink = (text, aria, disabled, pageNum) => {
+      if (disabled) {
+        const s = document.createElement('span');
+        s.className = 'page-btn disabled';
+        s.setAttribute('aria-label', aria);
+        s.textContent = text;
+        return s;
+      }
+      const a = document.createElement('a');
+      a.className = 'page-btn';
+      a.href = buildPageUrl(pageNum);
+      a.textContent = text;
+      a.setAttribute('aria-label', aria);
+      return a;
+    };
+
+    const first = makeLink('« First', 'First page', currentPage <= 1, 1);
+    const prev = makeLink('◀ Prev', 'Previous page', currentPage <= 1, Math.max(1, currentPage-1));
+
+    const pageInput = document.createElement('input');
+    pageInput.type = 'number';
+    pageInput.min = 1;
+    pageInput.max = totalPages;
+    pageInput.className = 'muted input-small';
+    pageInput.value = String(currentPage);
+    pageInput.addEventListener('change', ()=>{
+      const v = Number(pageInput.value||0);
+      if(Number.isFinite(v) && v>=1 && v<=totalPages){
+        window.location.href = buildPageUrl(v);
+      } else { pageInput.value = String(currentPage); }
+    });
+    pageInput.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        pageInput.dispatchEvent(new Event('change'));
+      }
+    });
+
+    const pageTotal = document.createElement('span'); pageTotal.className = 'muted ml-6'; pageTotal.textContent = `/ ${totalPages}`;
+
+    const next = makeLink('Next ▶', 'Next page', currentPage >= totalPages, Math.min(totalPages, currentPage+1));
+    const last = makeLink('Last »', 'Last page', currentPage >= totalPages, totalPages);
+
+    ctr.appendChild(first);
+    ctr.appendChild(prev);
+    ctr.appendChild(pageInput);
+    ctr.appendChild(pageTotal);
+    ctr.appendChild(next);
+    ctr.appendChild(last);
+
+    return ctr;
   };
 
-  const first = makeBtn('« First', 'First page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = 1; loadSubreddits(); } });
-  const prev = makeBtn('◀ Prev', 'Previous page', currentPage <= 1, ()=>{ if(isLoading) return; if(currentPage>1){ currentPage = Math.max(1, currentPage-1); loadSubreddits(); } });
-
-  const pageInput = document.createElement('input');
-  pageInput.type = 'number';
-  pageInput.min = 1;
-  pageInput.max = totalPages;
-  pageInput.className = 'muted input-small';
-  pageInput.value = String(currentPage);
-  pageInput.addEventListener('change', ()=>{
-    if(isLoading){ pageInput.value = String(currentPage); return; }
-    const v = Number(pageInput.value||0);
-    if(Number.isFinite(v) && v>=1 && v<=totalPages){ currentPage = v; loadSubreddits(); }
-    else { pageInput.value = String(currentPage); }
+  targets.forEach(t => {
+    t.innerHTML = '';
+    t.appendChild(buildControls());
   });
-  // Prevent Enter from causing a navigation/submit in some browsers
-  pageInput.addEventListener('keydown', (e) => {
-    if(e.key === 'Enter'){
-      e.preventDefault();
-      pageInput.dispatchEvent(new Event('change'));
-    }
-  });
-
-  const pageTotal = document.createElement('span'); pageTotal.className = 'muted ml-6'; pageTotal.textContent = `/ ${totalPages}`;
-
-  const next = makeBtn('Next ▶', 'Next page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = Math.min(totalPages, currentPage+1); loadSubreddits(); } });
-  const last = makeBtn('Last »', 'Last page', currentPage >= totalPages, ()=>{ if(isLoading) return; if(currentPage<totalPages){ currentPage = totalPages; loadSubreddits(); } });
-
-  ctr.appendChild(first);
-  ctr.appendChild(prev);
-  ctr.appendChild(pageInput);
-  ctr.appendChild(pageTotal);
-  ctr.appendChild(next);
-  ctr.appendChild(last);
-
-  paginationEl.appendChild(ctr);
   savePrefs();
 }
 
@@ -387,6 +407,17 @@ if (filterBtn) {
 function initializePage() {
   // Load saved preferences
   loadPrefs();
+  // If a `page` query parameter is present in the URL, prefer it over saved prefs
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlPage = params.get('page');
+    if (urlPage) {
+      const pnum = Number(urlPage);
+      if (Number.isFinite(pnum) && pnum >= 1) {
+        currentPage = Math.max(1, Math.floor(pnum));
+      }
+    }
+  } catch (e) { /* ignore */ }
   
   // Apply preferences to UI
   if (sortBy) sortBy.value = currentSort;
