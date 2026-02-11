@@ -19,6 +19,24 @@ const fmt = (n, opts={}) => (n ?? 0).toLocaleString('en-US', {maximumFractionDig
 // Use shared helpers: expect epoch seconds for timestamps
 const fmtDate = (epoch) => epoch ? epochToLocalString(epoch) : '—';
 
+// Keep last-seen timestamps for live relative updates
+let lastScannedTs = null;
+let lastPolledTs = null;
+
+// Live update of the small pill labels so relative times advance in the UI
+function updateRelativePills(){
+  const scannedEl = document.getElementById('lastScanned');
+  if(scannedEl){
+    scannedEl.textContent = lastScannedTs ? 'Last DB run: ' + timeAgo(lastScannedTs) : 'Last DB run: —';
+  }
+  const polledEl = document.getElementById('lastPolled');
+  if(polledEl){
+    polledEl.textContent = lastPolledTs ? 'Last polled: ' + timeAgo(lastPolledTs) : 'Last polled: —';
+  }
+}
+
+// Update every second to show live relative times
+setInterval(updateRelativePills, 1000);
 // Fetch app configuration from API
 async function fetchConfig(){
   try {
@@ -155,7 +173,9 @@ async function fetchStats(){
     }
     if(cache.stats.last_scanned !== s.last_scanned) {
       const el = document.getElementById('lastScanned');
-      if(el) el.textContent = 'Last DB run: ' + timeAgo(s.last_scanned);
+      // store timestamp and let the live updater render the relative text
+      lastScannedTs = s.last_scanned;
+      if(el) el.textContent = 'Last DB run: ' + timeAgo(lastScannedTs);
       cache.stats.last_scanned = s.last_scanned;
     }
     if(cache.stats.last_scan_new_mentions !== s.last_scan_new_mentions) {
@@ -175,7 +195,8 @@ async function fetchStats(){
     if(polledEl){
       // mark when we polled and show relative time
       const polledAt = Math.floor(Date.now() / 1000);
-      polledEl.textContent = 'Last polled: ' + timeAgo(polledAt);
+      lastPolledTs = polledAt;
+      polledEl.textContent = 'Last polled: ' + timeAgo(lastPolledTs);
     }
   } catch(err) {
     console.warn('stats failed', err);
