@@ -126,7 +126,8 @@ function bindControls(){
 
 async function fetchStats(){
   try {
-    const res = await fetch(`/stats?days=${currentDays}`);
+    const statsUrl = (currentDays >= 999999) ? '/stats' : `/stats?days=${currentDays}`;
+    const res = await fetch(statsUrl);
     if(!res.ok) throw new Error('HTTP '+res.status);
     const s = await res.json();
     
