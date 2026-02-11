@@ -171,12 +171,13 @@ async function fetchStats(){
       if(el) el.textContent = fmt(s.total_comments);
       cache.stats.total_comments = s.total_comments;
     }
-    if(cache.stats.last_scanned !== s.last_scanned) {
+    // Use the scan *start* time from the API for the "Last DB run" label
+    if (cache.stats.last_scan_started !== s.last_scan_started) {
       const el = document.getElementById('lastScanned');
-      // store timestamp and let the live updater render the relative text
-      lastScannedTs = s.last_scanned;
-      if(el) el.textContent = 'Last DB run: ' + timeAgo(lastScannedTs);
-      cache.stats.last_scanned = s.last_scanned;
+      // store the start timestamp and let the live updater render the relative text
+      lastScannedTs = s.last_scan_started;
+      if (el) el.textContent = 'Last DB run: ' + timeAgo(lastScannedTs);
+      cache.stats.last_scan_started = s.last_scan_started;
     }
     if(cache.stats.last_scan_new_mentions !== s.last_scan_new_mentions) {
       const el = document.getElementById('lastScanNewMentions');
