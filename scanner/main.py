@@ -1909,10 +1909,12 @@ def refresh_metadata_phase(duration_seconds):
         logger.info(f"Never scanned: {never_scanned}, Missing metadata: {missing_metadata}")
     
     start_time = time.time()
-    end_time = start_time + duration_seconds
     refreshed_count = 0
-    
-    while time.time() < end_time:
+    # Treat non-positive durations as "unlimited" — run until no work remains
+    unlimited = (duration_seconds <= 0)
+    end_time = None if unlimited else (start_time + duration_seconds)
+
+    while unlimited or time.time() < end_time:
         with Session(engine) as session:
             cutoff_24h = now_local() - timedelta(hours=METADATA_STALE_HOURS)
             
