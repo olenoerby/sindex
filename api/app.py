@@ -736,7 +736,12 @@ def stats(days: int = None):
                 except Exception:
                     pass
                 days = max_days
-            start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+            try:
+                start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+            except OverflowError:
+                # Large `days` values can make datetime go out of range.
+                # Return a clear 400 error instead of letting the ASGI app crash.
+                raise HTTPException(status_code=400, detail="days parameter too large (date out of range). Set MAX_STATS_DAYS or use a smaller value.")
             try:
                 out['total_mentions'] = int(session.query(func.count(models.Mention.id)).filter(models.Mention.timestamp >= start_ts).scalar() or 0)
                 out['total_posts'] = int(session.query(func.count(models.Post.id)).filter(models.Post.created_utc >= start_ts).scalar() or 0)
