@@ -710,6 +710,30 @@ if(clearQueryBtn){
   window.addEventListener('resize', ()=>{ placeExplainButton(); });
 })();
 
+/*
+ Example: enable the RTL animation plugin for Chart.js
+ Add `plugins: { rtlAnimation: { enabled: true, step: 30 } }` to your
+ chart config. To disable animations entirely set `options.animation = false`.
+
+ Example usage (replace labels/data with your real values):
+ const ctx = document.getElementById('myChart').getContext('2d');
+ const exampleChart = new Chart(ctx, {
+   type: 'line',
+   data: {
+     labels: ['a','b','c'], // replace
+     datasets: [{ label: 'Example', data: [1,2,3] }]
+   },
+   options: {
+     // disable all animations for this chart:
+     // animation: false,
+     // or enable the RTL plugin to animate new points from right->left
+     plugins: {
+       rtlAnimation: { enabled: true, step: 30 }
+     }
+   }
+ });
+*/
+
 // Options integrated into filter popout; old Options popout removed.
 // header click sorting: set sort key and toggle direction if same key
 document.querySelectorAll('th[data-sort]').forEach(th => {
