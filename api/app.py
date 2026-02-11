@@ -721,7 +721,21 @@ def stats(days: int = None):
         
         # If days specified, compute counts for that window only
         if days is not None:
-            days = max(1, min(3650, int(days)))
+            # Accept any positive number of days. If an operator wants a safety
+            # cap, they can set `MAX_STATS_DAYS` (integer, days). If unset or
+            # empty, no cap is applied.
+            days = max(1, int(days))
+            max_days_env = os.getenv('MAX_STATS_DAYS', '')
+            try:
+                max_days = int(max_days_env) if max_days_env else 0
+            except Exception:
+                max_days = 0
+            if max_days > 0 and days > max_days:
+                try:
+                    api_logger.info(f"/stats days param {days} capped to MAX_STATS_DAYS={max_days}")
+                except Exception:
+                    pass
+                days = max_days
             start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
             try:
                 out['total_mentions'] = int(session.query(func.count(models.Mention.id)).filter(models.Mention.timestamp >= start_ts).scalar() or 0)
