@@ -9,6 +9,7 @@ import hashlib
 from functools import wraps
 from api.distributed_rate_limiter import DistributedRateLimiter
 from api.phase import attach_phase_filter, temp_phase
+from dotenv import load_dotenv
 
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request, Header
@@ -30,9 +31,13 @@ attach_phase_filter(sh)
 api_logger.addHandler(sh)
 
 # Configuration and DB
+load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://pineapple:pineapple@db:5432/pineapple")
 META_CACHE_DAYS = int(os.getenv('META_CACHE_DAYS', '7'))
 METADATA_STALE_HOURS = int(os.getenv('METADATA_STALE_HOURS', '24'))
+# WEBSITE_REFRESH_SECONDS: controls how often the analytics page auto-refreshes (in seconds).
+# Loaded from `.env` (or environment); defaults to 30 seconds when unset.
+WEBSITE_REFRESH_SECONDS = int(os.getenv('WEBSITE_REFRESH_SECONDS', '30'))
 API_RATE_DELAY = float(os.getenv('API_RATE_DELAY', '6.5'))
 REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
 
@@ -822,7 +827,8 @@ def stats(days: int = None):
 def get_config():
     """Public configuration values for the frontend."""
     return {
-        "metadata_stale_hours": METADATA_STALE_HOURS
+        "metadata_stale_hours": METADATA_STALE_HOURS,
+        "website_refresh_seconds": WEBSITE_REFRESH_SECONDS
     }
 
 

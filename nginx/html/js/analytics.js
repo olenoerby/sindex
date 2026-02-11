@@ -13,7 +13,7 @@ const cache = {
 };
 
 // Config cache (fetched from API)
-let appConfig = { metadata_stale_hours: 24 }; // Default fallback
+let appConfig = { metadata_stale_hours: 24, website_refresh_seconds: 30 }; // Default fallback
 
 const fmt = (n, opts={}) => (n ?? 0).toLocaleString('en-US', {maximumFractionDigits: 1, ...opts});
 // Use shared helpers: expect epoch seconds for timestamps
@@ -726,18 +726,20 @@ async function init() {
   fetchDaily(currentDays);
   fetchTopBlocks();
   
-  // Auto-refresh every 30 seconds
-  setInterval(() => { 
+  // Auto-refresh using interval loaded from /config (seconds)
+  const refreshSec = Number(appConfig.website_refresh_seconds) || 30;
+  const refreshMs = Math.max(1000, refreshSec * 1000);
+  setInterval(() => {
     fetchStats();
     fetchMetadataStats();
     fetchDaily(currentDays);
     fetchTopBlocks();
     fetchServiceHealth();
-  }, 30000);
+  }, refreshMs);
 }
 
 initWithAgeGate(init);
 
 // Fetch service health immediately and periodically
 fetchServiceHealth();
-setInterval(fetchServiceHealth, 30000);
+// periodic service-health polling is handled by the main refresh interval above
