@@ -448,7 +448,7 @@ function render(){
     titleTd.classList.add('col-title');
     const isUnprocessed = (s.title === null || s.title === undefined) && !s.is_banned && s.subreddit_found !== false;
     if (isUnprocessed) {
-      const sp = document.createElement('span'); sp.className = 'muted'; sp.textContent = 'Pending update';
+      const sp = document.createElement('span'); sp.className = 'muted'; sp.textContent = 'Pending metadata update';
       titleTd.appendChild(sp);
     } else {
       const rawTitle = (s.title === null || s.title === undefined) ? '' : (s.title || '—');

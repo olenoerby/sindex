@@ -282,8 +282,15 @@ async function fetchServiceHealth(){
     const scannerSub = document.getElementById('svcScannerSub');
     if(scannerEl) scannerEl.textContent = scannerOk ? 'Healthy' : 'Unhealthy';
     if(scannerSub){
-              const last = h['scanner-last-scan-started'] || h['scanner_last_scan_started'] || null;
-              scannerSub.textContent = `Last scan: ${ last ? timeAgo(last) : '—'}`;
+      const last = h['scanner-last-scan-started'] || h['scanner_last_scan_started'] || null;
+      const duration = h['scanner-last-scan-duration'] || h['scanner_last_scan_duration'] || null;
+      const lastScanned = h['scanner-last-scanned'] || h['scanner_last_scanned'] || null;
+
+      const lastText = last ? timeAgo(last) : '—';
+      const durText = (duration !== null && duration !== undefined) ? `${fmt(duration, {maximumFractionDigits:0})}s` : '—';
+      const lastScannedText = lastScanned ? timeAgo(lastScanned) : '—';
+
+      scannerSub.textContent = `Last scan: ${lastText} · Duration: ${durText} · DB scan: ${lastScannedText}`;
     }
   } catch(err) {
     console.warn('service health fetch failed', err);
