@@ -16,7 +16,8 @@ const cache = {
 let appConfig = { metadata_stale_hours: 24 }; // Default fallback
 
 const fmt = (n, opts={}) => (n ?? 0).toLocaleString('en-US', {maximumFractionDigits: 1, ...opts});
-const fmtDate = (iso) => iso ? new Date(iso).toLocaleString() : '—';
+// Use shared helpers: expect epoch seconds for timestamps
+const fmtDate = (epoch) => epoch ? epochToLocalString(epoch) : '—';
 
 // Fetch app configuration from API
 async function fetchConfig(){
@@ -154,7 +155,7 @@ async function fetchStats(){
     }
     if(cache.stats.last_scanned !== s.last_scanned) {
       const el = document.getElementById('lastScanned');
-      if(el) el.textContent = 'Last DB run: ' + fmtDate(s.last_scanned);
+      if(el) el.textContent = 'Last DB run: ' + timeAgo(s.last_scanned);
       cache.stats.last_scanned = s.last_scanned;
     }
     if(cache.stats.last_scan_new_mentions !== s.last_scan_new_mentions) {
@@ -163,15 +164,19 @@ async function fetchStats(){
       cache.stats.last_scan_new_mentions = s.last_scan_new_mentions;
     }
     const dur = s.last_scan_duration ? `${fmt(s.last_scan_duration, {maximumFractionDigits:0})}s` : '—';
-    const started = s.last_scan_started ? new Date(s.last_scan_started).toLocaleString() : '—';
-    const meta = `Started ${started} · Duration ${dur}`;
+    const startedAgo = s.last_scan_started ? timeAgo(s.last_scan_started) : '—';
+    const meta = `Started ${startedAgo} · Duration ${dur}`;
     if(cache.stats.lastScanMeta !== meta) {
       const el = document.getElementById('lastScanMeta');
       if(el) el.textContent = meta;
       cache.stats.lastScanMeta = meta;
     }
     const polledEl = document.getElementById('lastPolled');
-    if(polledEl) polledEl.textContent = 'Last polled: ' + new Date().toLocaleString();
+    if(polledEl){
+      // mark when we polled and show relative time
+      const polledAt = Math.floor(Date.now() / 1000);
+      polledEl.textContent = 'Last polled: ' + timeAgo(polledAt);
+    }
   } catch(err) {
     console.warn('stats failed', err);
     if(err.message && err.message.includes('JSON')) {
@@ -255,8 +260,8 @@ async function fetchServiceHealth(){
     const scannerSub = document.getElementById('svcScannerSub');
     if(scannerEl) scannerEl.textContent = scannerOk ? 'Healthy' : 'Unhealthy';
     if(scannerSub){
-      const last = h['scanner-last-scan-started'] || h['scanner_last_scan_started'] || '—';
-      scannerSub.textContent = `Last scan: ${last}`;
+              const last = h['scanner-last-scan-started'] || h['scanner_last_scan_started'] || null;
+              scannerSub.textContent = `Last scan: ${ last ? timeAgo(last) : '—'}`;
     }
   } catch(err) {
     console.warn('service health fetch failed', err);

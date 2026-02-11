@@ -25,6 +25,32 @@ function formatDate(dateStr) {
   return `${Math.floor(days / 365)} years ago`;
 }
 
+// Convert epoch seconds to a localized string
+function epochToLocalString(epochSeconds){
+  if(!epochSeconds && epochSeconds !== 0) return '—';
+  const ms = (typeof epochSeconds === 'number') ? epochSeconds * 1000 : Number(epochSeconds) * 1000;
+  try{
+    return new Date(ms).toLocaleString();
+  }catch(e){ return '—'; }
+}
+
+// Human-friendly relative time (seconds/minutes/hours/days)
+function timeAgo(epochSeconds){
+  if(!epochSeconds && epochSeconds !== 0) return '—';
+  const now = Math.floor(Date.now() / 1000);
+  const ts = typeof epochSeconds === 'number' ? epochSeconds : Number(epochSeconds);
+  if(!Number.isFinite(ts)) return '—';
+  let delta = now - ts;
+  if(delta < 0) delta = 0; // future times show as just now
+  if(delta < 60) return `${delta}s ago`;
+  if(delta < 3600) return `${Math.floor(delta/60)}m ago`;
+  if(delta < 86400) return `${Math.floor(delta/3600)}h ago`;
+  if(delta < 604800) return `${Math.floor(delta/86400)}d ago`;
+  if(delta < 2592000) return `${Math.floor(delta/604800)}w ago`;
+  if(delta < 31536000) return `${Math.floor(delta/2592000)}mo ago`;
+  return `${Math.floor(delta/31536000)}y ago`;
+}
+
 // Decode HTML entities safely without XSS risk
 function decodeHtml(html) {
   if (!html) return '';

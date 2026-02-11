@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 import httpx
 import os
@@ -65,8 +65,24 @@ except Exception as e:
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
-            return obj.isoformat()
+            # Normalize to UTC and return unix seconds to avoid leaking TZ info
+            if obj.tzinfo is None:
+                return int(obj.replace(tzinfo=timezone.utc).timestamp())
+            return int(obj.astimezone(timezone.utc).timestamp())
         return super().default(obj)
+
+
+def to_epoch(obj):
+    """Convert a datetime or timestamp-like value to epoch seconds (int) or None."""
+    if obj is None:
+        return None
+    if isinstance(obj, (int, float)):
+        return int(obj)
+    if isinstance(obj, datetime):
+        if obj.tzinfo is None:
+            return int(obj.replace(tzinfo=timezone.utc).timestamp())
+        return int(obj.astimezone(timezone.utc).timestamp())
+    return None
 
 # Cache decorator for stats endpoints
 def cache_response(ttl_seconds: int = 30):
@@ -327,7 +343,7 @@ class SubredditOut(BaseModel):
     is_banned: Optional[bool]
     subreddit_found: Optional[bool]  # False if subreddit doesn't exist (404)
     over18: Optional[bool]
-    last_checked: Optional[datetime]
+    last_checked: Optional[int]
     mentions: Optional[int]
 
 
@@ -644,7 +660,7 @@ def list_subreddits(
                 is_banned=s.is_banned,
                 subreddit_found=s.subreddit_found if hasattr(s, 'subreddit_found') else True,
                 over18=s.is_over18,
-                last_checked=s.last_checked,
+                last_checked=to_epoch(s.last_checked),
                 mentions=mentions
             ).dict())
 
@@ -700,7 +716,7 @@ def health():
 
             out = {"api-health": True, "db-health": True, "scanner-health": scanner_ok}
             if scanner_last:
-                out["scanner-last-scan-started"] = scanner_last
+                out["scanner-last-scan-started"] = to_epoch(scanner_last)
 
             return out
         except Exception as e:
@@ -753,14 +769,14 @@ def stats(days: int = None):
             # ensure we always include current last_scanned
             try:
                 last_scanned = session.query(func.max(models.Subreddit.last_checked)).scalar()
-                out["last_scanned"] = last_scanned
+                out["last_scanned"] = to_epoch(last_scanned)
             except Exception:
                 pass
             # Include scanner metadata from analytics table (independent of date range)
             try:
                 analytics = session.query(models.Analytics).first()
                 if analytics:
-                    out["last_scan_started"] = getattr(analytics, 'last_scan_started', None)
+                    out["last_scan_started"] = to_epoch(getattr(analytics, 'last_scan_started', None))
                     out["last_scan_duration"] = getattr(analytics, 'last_scan_duration', None)
                     out["last_scan_new_mentions"] = getattr(analytics, 'last_scan_new_mentions', None)
             except Exception:
@@ -776,14 +792,14 @@ def stats(days: int = None):
                     "total_posts": int(analytics.total_posts or 0),
                     "total_comments": int(analytics.total_comments or 0),
                     "total_mentions": int(analytics.total_mentions or 0),
-                    "analytics_updated_at": getattr(analytics, 'updated_at', None),
-                    "last_scan_started": getattr(analytics, 'last_scan_started', None),
+                    "analytics_updated_at": to_epoch(getattr(analytics, 'updated_at', None)),
+                    "last_scan_started": to_epoch(getattr(analytics, 'last_scan_started', None)),
                     "last_scan_duration": getattr(analytics, 'last_scan_duration', None),
                     "last_scan_new_mentions": getattr(analytics, 'last_scan_new_mentions', None)
                 })
             # ensure we always include current last_scanned
             last_scanned = session.query(func.max(models.Subreddit.last_checked)).scalar()
-            out["last_scanned"] = last_scanned
+            out["last_scanned"] = to_epoch(last_scanned)
         except Exception:
             api_logger.exception("Failed to compute stats")
         # fallback to individual counts if analytics missing
@@ -1017,7 +1033,7 @@ def get_subreddit(name: str):
         if not s:
             raise HTTPException(status_code=404, detail="Subreddit not found")
         mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
-        return {"name": s.name, "created_utc": s.created_utc, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "last_checked": s.last_checked, "mentions": mentions}
+        return {"name": s.name, "created_utc": s.created_utc, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "last_checked": to_epoch(s.last_checked), "mentions": mentions}
 
 
     @app.post("/subreddits/{name}/refresh")
@@ -1105,7 +1121,7 @@ def get_subreddit(name: str):
                 session.add(s)
                 session.commit()
                 mentions = session.query(func.count(models.Mention.id)).filter(models.Mention.subreddit_id == s.id).scalar()
-                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "subreddit_found": s.subreddit_found, "last_checked": s.last_checked, "mentions": mentions}}
+                return {"ok": True, "subreddit": {"name": s.name, "display_name": s.display_name, "title": s.title, "subscribers": s.subscribers, "active_users": s.active_users, "description": s.description, "is_banned": s.is_banned, "subreddit_found": s.subreddit_found, "last_checked": to_epoch(s.last_checked), "mentions": mentions}}
             except Exception:
                 session.rollback()
                 raise HTTPException(status_code=500, detail="Failed to refresh subreddit metadata")
@@ -1837,14 +1853,14 @@ def get_subreddit_categories(name: str):
                     'tags': []
                 }
             
-            categories[category.id]['tags'].append({
+                categories[category.id]['tags'].append({
                 'id': tag.id,
                 'name': tag.name,
                 'slug': tag.slug,
                 'icon': tag.icon,
                 'source': association.source,
                 'confidence': association.confidence,
-                'created_at': association.created_at.isoformat() if association.created_at else None
+                'created_at': to_epoch(association.created_at) if association.created_at else None
             })
         
         return {

@@ -1041,7 +1041,7 @@ function openDescriptionModal(htmlText, lastChecked){
   // escape HTML by using textContent
   content.textContent = htmlText || '';
   if(lastChecked){
-    timestamp.textContent = 'Last updated: ' + new Date(lastChecked).toLocaleString();
+    timestamp.textContent = 'Last updated: ' + timeAgo(lastChecked);
   } else {
     timestamp.textContent = '';
   }
