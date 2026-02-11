@@ -437,8 +437,8 @@ async function fetchDaily(days){
     }
     document.getElementById('timelineSummary').textContent = `${fmt(totalMentions)} mentions, ${fmt(totalPosts)} posts, ${fmt(totalComments)} comments across ${periodText}`;
     const peakSubs = Math.max(...newSubs, 0);
-    const { rangeText: subsRangeText } = getRangeLabels(currentDays);
-    document.getElementById('subsSummary').textContent = `${fmt(sumNewSubs)} new subs (${subsRangeText}) · peak ${fmt(peakSubs)} in a day`;
+    // Remove descriptive summary text for the New subreddits per day graph
+    try{ const el = document.getElementById('subsSummary'); if(el) el.textContent = ''; }catch(e){}
   } catch(err) {
     console.warn('daily failed', err);
     if(err.message && err.message.includes('JSON')) {
