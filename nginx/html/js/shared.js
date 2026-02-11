@@ -36,10 +36,27 @@ function epochToLocalString(epochSeconds){
 
 // Human-friendly relative time (seconds/minutes/hours/days)
 function timeAgo(epochSeconds){
-  if(!epochSeconds && epochSeconds !== 0) return '—';
+  if(epochSeconds === null || epochSeconds === undefined) return '—';
   const now = Math.floor(Date.now() / 1000);
-  const ts = typeof epochSeconds === 'number' ? epochSeconds : Number(epochSeconds);
-  if(!Number.isFinite(ts)) return '—';
+  let ts;
+  // Numbers may be seconds or milliseconds
+  if (typeof epochSeconds === 'number') {
+    ts = epochSeconds > 1e12 ? Math.floor(epochSeconds / 1000) : Math.floor(epochSeconds);
+  } else if (typeof epochSeconds === 'string') {
+    // Try parsing as ISO date string
+    const parsed = Date.parse(epochSeconds);
+    if (!isNaN(parsed)) {
+      ts = Math.floor(parsed / 1000);
+    } else {
+      const n = Number(epochSeconds);
+      if (Number.isFinite(n)) ts = n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+      else return '—';
+    }
+  } else if (epochSeconds instanceof Date) {
+    ts = Math.floor(epochSeconds.getTime() / 1000);
+  } else {
+    return '—';
+  }
   let delta = now - ts;
   if(delta < 0) delta = 0; // future times show as just now
   if(delta < 60) return `${delta}s ago`;
