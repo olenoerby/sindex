@@ -1805,20 +1805,84 @@ def update_subreddit_metadata(session: Session, sub: models.Subreddit):
                 pass
         elif r.status_code in (403, 404):
             # Distinguish between forbidden (403) and not found (404).
+            # Some banned subreddits are surfaced as 404 with a payload reason indicating a ban.
+            # Treat responses with an explicit 'reason' of 'banned' (or similar) as banned.
+            try:
+                payload = r.json()
+            except Exception:
+                payload = None
+
+            reason = None
+            if isinstance(payload, dict):
+                reason = payload.get('reason')
+                if reason is not None:
+                    try:
+                        sub.ban_reason = str(reason)
+                    except Exception:
+                        pass
+
+            # If about.json didn't include a reason, try the subreddit /.json
+            # endpoint which sometimes returns a body like
+            # {"reason":"banned","message":"Not Found","error":404}
+            try:
+                if not is_user and not reason and r.status_code in (403, 404):
+                    fallback_url = f"https://www.reddit.com/r/{sub.name}/.json"
+                    headers = {"User-Agent": "PineappleIndexBot/0.1 (by /u/yourbot)"}
+                    try:
+                        if distributed_rate_limiter:
+                            distributed_rate_limiter.wait_if_needed()
+                        else:
+                            rate_limiter.wait_if_needed()
+                    except Exception:
+                        pass
+                    try:
+                        fr = httpx.get(fallback_url, headers=headers, timeout=HTTP_REQUEST_TIMEOUT)
+                        # Record this API call with the global limiter
+                        try:
+                            if distributed_rate_limiter:
+                                distributed_rate_limiter.record_api_call()
+                            else:
+                                rate_limiter.record_call()
+                        except Exception:
+                            pass
+                        try:
+                            fpayload = fr.json()
+                        except Exception:
+                            fpayload = None
+                        if isinstance(fpayload, dict):
+                            freason = fpayload.get('reason')
+                            if freason and isinstance(freason, str) and 'banned' in freason.lower():
+                                sub.is_banned = True
+                                sub.subreddit_found = True
+                                try:
+                                    sub.ban_reason = str(freason)
+                                except Exception:
+                                    pass
+                                try:
+                                    logger.info(f"Fallback /.json indicates banned for /r/{sub.name}: {freason}")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # fallback request failed; ignore and continue
+                        pass
+            except Exception:
+                pass
+
             if r.status_code == 403:
                 sub.is_banned = True
                 sub.subreddit_found = True
             else:
-                # 404 -> subreddit does not exist; mark subreddit_found=False so UI can hide it
-                sub.subreddit_found = False
-                sub.is_banned = False
-            # if response body includes reason, save it
-            try:
-                payload = r.json()
-                if isinstance(payload, dict) and payload.get('reason'):
-                    sub.ban_reason = str(payload.get('reason'))
-            except Exception:
-                pass
+                # 404 -> normally means not found; however if the response body
+                # includes a reason that indicates the community is banned, record
+                # it as banned so the UI shows the correct state.
+                if reason and isinstance(reason, str) and 'banned' in reason.lower():
+                    sub.is_banned = True
+                    # Mark as found (exists but banned) so UI can present ban status
+                    sub.subreddit_found = True
+                else:
+                    sub.subreddit_found = False
+                    sub.is_banned = False
+
             try:
                 logger.info(f"{entity_label} returned {r.status_code}; is_banned={sub.is_banned}, subreddit_found={sub.subreddit_found}")
             except Exception:
