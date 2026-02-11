@@ -70,15 +70,34 @@ function initializeDateRange(){
   });
   
   // Update window display
-  const displayText = currentDays >= 999999 ? 'Window: All time' : `Window: ${currentDays} days`;
+  const { displayText } = getRangeLabels(currentDays);
   document.getElementById('window').textContent = displayText;
   updateCardTitles();
   updateTableRangeIndicators();
 }
 
+// Helper to produce UI-friendly range labels. For 30d/90d use days; for 180d, 1y and All use months/All time.
+function getRangeLabels(days){
+  // treat large sentinel as All time
+  const ALL_SENTINEL = 999999;
+  if(days >= ALL_SENTINEL){
+    return { displayText: 'Window: All time', rangeText: 'All time', subsDesc: 'First-time mentions across all time.' };
+  }
+  // months view when specifically 180 or 365
+  if(days === 180 || days === 365){
+    const months = Math.round(days / 30);
+    const displayText = `Window: ${months} months`;
+    const rangeText = `${months} months`;
+    const subsDesc = `First-time mentions in the last ${months} months.`;
+    return { displayText, rangeText, subsDesc };
+  }
+  // default: days
+  return { displayText: `Window: ${days} days`, rangeText: `${days}d`, subsDesc: `First-time mentions in the last ${days} days.` };
+}
+
 // Update card titles to show the selected date range
 function updateCardTitles(){
-  const rangeText = currentDays >= 999999 ? 'All time' : `${currentDays}d`;
+  const { rangeText, subsDesc } = getRangeLabels(currentDays);
   document.getElementById('totalMentionsTitle').textContent = `Total subreddit mentions (${rangeText})`;
   document.getElementById('totalSubsTitle').textContent = `Total unique subreddits (${rangeText})`;
   document.getElementById('totalPostsTitle').textContent = `Total posts (${rangeText})`;
@@ -86,7 +105,7 @@ function updateCardTitles(){
   document.getElementById('peakMentionTitle').textContent = `Peak mention day (${rangeText})`;
   // Update description under Total subreddits to reflect the selected window
   const newSubsDescEl = document.getElementById('newSubsDesc');
-  if(newSubsDescEl) newSubsDescEl.textContent = `First-time mentions in the last ${currentDays >= 999999 ? 'all days' : currentDays + ' days'}.`;
+  if(newSubsDescEl) newSubsDescEl.textContent = subsDesc;
   document.getElementById('topCommenterTitle').textContent = `Top commenter (${rangeText})`;
     const tmEl = document.getElementById('topMentionerTitle');
     if(tmEl) tmEl.textContent = `Top mentioner (${rangeText})`;
@@ -94,7 +113,7 @@ function updateCardTitles(){
 
 // Update small subtitles for analytic tables to show active date range
 function updateTableRangeIndicators(){
-  const rangeText = currentDays >= 999999 ? 'All time' : `${currentDays}d`;
+  const { rangeText } = getRangeLabels(currentDays);
   const tables = [
     'topSubredditsTable',
     'topCommentersTable',
@@ -124,7 +143,7 @@ function bindControls(){
       currentDays = days;
       buttons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const displayText = days >= 999999 ? 'Window: All time' : `Window: ${days} days`;
+      const { displayText } = getRangeLabels(days);
       document.getElementById('window').textContent = displayText;
       updateCardTitles();
       updateTableRangeIndicators();
@@ -407,9 +426,19 @@ async function fetchDaily(days){
     
     // Summaries
     const lastLabel = labels[labels.length-1];
-    document.getElementById('timelineSummary').textContent = `${fmt(totalMentions)} mentions, ${fmt(totalPosts)} posts, ${fmt(totalComments)} comments across ${labels.length} days`;
+    // Describe the visible period: use months wording for configured month-ranges
+    let periodText;
+    if(currentDays >= 999999){
+      periodText = 'all time';
+    } else if(currentDays === 180 || currentDays === 365){
+      periodText = `${Math.round(currentDays/30)} months`;
+    } else {
+      periodText = `${labels.length} days`;
+    }
+    document.getElementById('timelineSummary').textContent = `${fmt(totalMentions)} mentions, ${fmt(totalPosts)} posts, ${fmt(totalComments)} comments across ${periodText}`;
     const peakSubs = Math.max(...newSubs, 0);
-    document.getElementById('subsSummary').textContent = `${fmt(sumNewSubs)} new subs (${currentDays >= 999999 ? 'all time' : currentDays + 'd'}) · peak ${fmt(peakSubs)} in a day`;
+    const { rangeText: subsRangeText } = getRangeLabels(currentDays);
+    document.getElementById('subsSummary').textContent = `${fmt(sumNewSubs)} new subs (${subsRangeText}) · peak ${fmt(peakSubs)} in a day`;
   } catch(err) {
     console.warn('daily failed', err);
     if(err.message && err.message.includes('JSON')) {
